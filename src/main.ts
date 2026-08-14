@@ -90,7 +90,7 @@ function showToast(text: string, seconds = .8) {
 function fire() {
   if (sim.phase === P_RESULT) { newGame(); return; }
   if (sim.phase === P_TITLE) { beginGame(sim); overlay.classList.add("hidden"); tone(420); return; }
-  beginDrop(sim);
+  if (beginDrop(sim)) hud();
 }
 
 function toggleMute() {
@@ -104,8 +104,8 @@ function handleEvents() {
     else if (e === EV_CLOSE) tone(95, .16, "square");
     else if (e === EV_GRAB) tone(330, .1, "triangle", .06);
     else if (e === EV_SLIP) { tone(140, .3, "sawtooth"); showToast("SLIPPED!"); }
-    else if (e === EV_WIN) {
-      const r = sim.lastWin;
+    else if (e >= EV_WIN) {
+      const r = e - EV_WIN;
       showToast(`+${POINTS[r]}`, .9);
       sparkT = 0; sparkX = MOUTH_X; sparkY = FLOOR + .5; sparkZ = MOUTH_Z;
       tone(r > 2 ? 880 : 620, .4, "triangle");

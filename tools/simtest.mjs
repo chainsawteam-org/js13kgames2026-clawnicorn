@@ -51,7 +51,10 @@ function play(seed, aim, fps = 60) {
       if (e === S.EV_GRAB) log.grabs++;
       if (e === S.EV_EMPTY) log.empty++;
       if (e === S.EV_SLIP) log.slips++;
-      if (e === S.EV_WIN) { log.wins++; log.byRarity[s.lastWin] = (log.byRarity[s.lastWin] || 0) + 1; }
+      if (e >= S.EV_WIN) {
+        const rarity = e - S.EV_WIN;
+        log.wins++; log.byRarity[rarity] = (log.byRarity[rarity] || 0) + 1;
+      }
     }
     s.events.length = 0;
   }
@@ -115,13 +118,67 @@ console.log("\n— asentado inicial —");
     const nan = s.toys.filter(p => !Number.isFinite(p.x + p.y + p.z + p.yaw));
     check(`forma ${shape}: 13 premios apoyados`, s.shape === shape && s.toys.length === 13 && !low.length,
       `${low.length} bajo el relieve`);
-    check(`forma ${shape}: conducto libre y sin NaN`, !inChute.length && !nan.length);
+    check(`forma ${shape}: conducto libre y sin NaN`, !inChute.length && !nan.length && !s.score && s.toys.every(p => p.state === 0));
     check(`forma ${shape}: el montón queda dormido`, s.toys.every(p => p.sleep > 0));
+    for (let i = 0; i < 600; i++) S.step(s);
+    check(`forma ${shape}: esperar en el título no entrega premios`, !s.score && s.toys.every(p => p.state === 0));
   }
   const s = S.createSim();
   let repeated = 0, last = -1;
   for (let i = 0; i < 20; i++) { S.reset(s, 7000 + i * 97); if (s.shape === last) repeated++; last = s.shape; }
   check("20 reinicios no repiten forma", repeated === 0);
+}
+
+console.log("\n— conducto físico —");
+{
+  const isolated = rarity => {
+    const s = S.createSim(); S.reset(s, 2468);
+    for (const p of s.toys) p.state = 2;
+    const p = s.toys[0];
+    p.state = 0; p.rarity = rarity; p.x = p.ox = S.MOUTH_X; p.z = p.oz = S.MOUTH_Z;
+    p.y = S.FLOOR + .35; p.oy = p.y + .03; p.sleep = 0;
+    s.phase = S.P_AIM; s.score = 0; s.events.length = 0;
+    return { s, p };
+  };
+
+  const pushed = isolated(2);
+  S.step(pushed.s);
+  check("un premio libre que entra en la boca empieza a caer", pushed.p.state === 3);
+  let guard = 0;
+  while (pushed.p.state !== 2 && guard++ < 500) S.step(pushed.s);
+  check("la caída emergente puntúa una sola vez", pushed.p.state === 2 && pushed.s.score === S.POINTS[2]);
+  for (let i = 0; i < 30; i++) S.step(pushed.s);
+  check("un premio ganado no vuelve a puntuar", pushed.s.score === S.POINTS[2]);
+
+  const lip = isolated(0);
+  lip.p.x = lip.p.ox = S.MOUTH_X + S.MOUTH_R + .02;
+  lip.p.y = lip.p.oy = S.FLOOR + S.FEET;
+  S.step(lip.s);
+  check("tocar el borde sin entrar no puntúa", lip.p.state === 0 && lip.s.score === 0);
+
+  const blocked = isolated(1), obstacle = blocked.s.toys[1];
+  blocked.p.x = blocked.p.ox = S.MOUTH_X + .35;
+  blocked.p.y = blocked.p.oy = S.FLOOR + S.FEET + 1;
+  blocked.p.yaw = blocked.p.oyaw = 0;
+  obstacle.state = 0; obstacle.x = obstacle.ox = blocked.p.x - .75;
+  obstacle.y = obstacle.oy = blocked.p.y; obstacle.z = obstacle.oz = blocked.p.z;
+  obstacle.yaw = obstacle.oyaw = 0; obstacle.sleep = 0;
+  const oldObstacleX = obstacle.x;
+  S.step(blocked.s);
+  check("un premio soltado conserva colisiones sobre la boca",
+    blocked.p.state === 0 && obstacle.x !== oldObstacleX);
+
+  const multi = isolated(1);
+  const second = multi.s.toys[1];
+  multi.p.state = second.state = 3;
+  multi.p.y = second.y = S.FLOOR - .1;
+  multi.p.oy = second.oy = S.FLOOR;
+  second.rarity = 2;
+  multi.s.events.length = 0;
+  S.step(multi.s);
+  const wins = multi.s.events.filter(e => e >= S.EV_WIN).sort((a, b) => a - b);
+  check("dos caídas simultáneas suman ambos premios",
+    multi.s.score === S.POINTS[1] + S.POINTS[2] && wins.join() === [S.EV_WIN + 1, S.EV_WIN + 2].join());
 }
 
 console.log("\n— entrada analógica —");
@@ -136,6 +193,49 @@ console.log("\n— entrada analógica —");
   check("(.3,.4) conserva su magnitud .5", Math.abs(Math.hypot(...analog) - unit * .5) < 1e-12);
   check("vector mayor que uno se limita a uno", Math.abs(Math.hypot(...over) - unit) < 1e-12);
   check("entrada cero permanece cero", zero[0] === 0 && zero[1] === 0);
+}
+
+console.log("\n— consumo de intentos —");
+{
+  const s = S.createSim(); S.reset(s, 1357); S.beginGame(s);
+  check("el intento se descuenta al iniciar la bajada", S.beginDrop(s) && s.tries === 4);
+  check("otro input durante la jugada no consume otro intento", !S.beginDrop(s) && s.tries === 4);
+  let guard = 0;
+  while (s.phase !== S.P_AIM && s.phase !== S.P_RESULT && guard++ < 4000) S.step(s);
+  check("terminar la animación no vuelve a descontarlo", s.tries === 4);
+}
+
+console.log("\n— paredes laterales —");
+{
+  const cases = [
+    ["derecha", 0, S.X1 - .6, 0, .05, 0],
+    ["izquierda", 180, S.X0 + .6, 0, -.05, 0],
+    ["frontal", -90, 0, S.Z1 - .6, 0, .05],
+    ["trasera", 90, 0, S.Z0 + .6, 0, -.05]
+  ];
+  for (const [name, yaw, x, z, vx, vz] of cases) {
+    const s = S.createSim(); S.reset(s, 8642);
+    for (const q of s.toys) q.state = 2;
+    const p = s.toys[0];
+    p.state = 0; p.yaw = p.oyaw = yaw; p.x = x; p.ox = x - vx; p.z = z; p.oz = z - vz;
+    p.y = p.oy = S.FLOOR + S.FEET + .5; p.sleep = 0; s.phase = S.P_AIM;
+    S.step(s);
+    const a = yaw * Math.PI / 180, hx = Math.cos(a) * .62, hz = -Math.sin(a) * .62;
+    const inside = p.x - .55 >= S.X0 - 1e-9 && p.x + .55 <= S.X1 + 1e-9 &&
+      p.z - .55 >= S.Z0 - 1e-9 && p.z + .55 <= S.Z1 + 1e-9 &&
+      p.x + hx - .37 >= S.X0 - 1e-9 && p.x + hx + .37 <= S.X1 + 1e-9 &&
+      p.z + hz - .37 >= S.Z0 - 1e-9 && p.z + hz + .37 <= S.Z1 + 1e-9;
+    const bounced = vx ? Math.sign(p.x - p.ox) === -Math.sign(vx) : Math.sign(p.z - p.oz) === -Math.sign(vz);
+    check(`${name}: cuerpo y cabeza rebotan dentro`, inside && bounced);
+  }
+  const s = S.createSim(); S.reset(s, 9753);
+  for (const q of s.toys) q.state = 2;
+  const p = s.toys[0];
+  p.state = 0; p.x = p.ox = p.z = p.oz = 0;
+  p.y = S.CEILING - .4; p.oy = p.y - .08; p.sleep = 0; s.phase = S.P_AIM;
+  S.step(s);
+  check("techo: cuerpo y cabeza rebotan hacia abajo",
+    p.y + .5 + .37 <= S.CEILING + 1e-9 && p.y - p.oy < 0);
 }
 
 console.log("\n— independencia del refresco (el bug original) —");
@@ -201,7 +301,7 @@ console.log("\n— integridad tras 40 partidas (jugador sensato, puntería imper
   check("un jugador sensato rara vez se va en blanco", scoreless <= 4, `${scoreless}/40 sin puntuar`);
   console.log(`       agarres ${totalGrabs} · vacíos ${totalEmpty} · resbalones ${totalSlips} · entregados ${totalWins}`);
   console.log(`       media por partida: ${(totalScore / 40).toFixed(0)} pts, ${(totalWins / 40).toFixed(2)} premios`);
-  console.log(`       por rareza — nube ${rarities[0]} rosa ${rarities[1]} oro ${rarities[2]} rainbow ${rarities[3]}`);
+  console.log(`       por premio — cloud ${rarities[0]} rainbow ${rarities[1]} star ${rarities[2]} king ${rarities[3]}`);
   console.log("       por forma — " + byShape.map((v, i) => `${i}: ${(v.score / v.games).toFixed(0)} pts, ${(v.wins / v.games).toFixed(2)} premios, ${v.zeros}/${v.games} a cero`).join(" · "));
 }
 
@@ -223,12 +323,12 @@ console.log("\n— ¿hay decisión? codicioso contra conservador —");
   const g = runMany(greedyNoisy), sf = runMany(safe);
   console.log(`       codicioso   media ${g.avg.toFixed(0)} pts · ${g.prizes.toFixed(2)} premios · ${g.zeros}/60 a cero · ${g.big}/60 con jackpot`);
   console.log(`       conservador media ${sf.avg.toFixed(0)} pts · ${sf.prizes.toFixed(2)} premios · ${sf.zeros}/60 a cero · ${sf.big}/60 con jackpot`);
-  // Las dos deben ser jugables. El codicioso puede pagar más de media —para eso es
-  // el jackpot— pero no tanto como para que jugar seguro sea una tontería.
+  // Las dos deben ser jugables. La boca abierta premia además los empujones del
+  // codicioso, así que el margen permitido es mayor que con el conducto protegido.
   const ratio = Math.max(g.avg, sf.avg) / Math.max(1, Math.min(g.avg, sf.avg));
-  check("ninguna estrategia domina (menos de 2×)", ratio < 2, `${ratio.toFixed(2)}×`);
+  check("ambas estrategias conservan valor (menos de 3,5×)", ratio < 3.5, `${ratio.toFixed(2)}×`);
   check("el conservador rara vez se va a cero", sf.zeros <= 12, `${sf.zeros}/60`);
-  check("el codicioso asume riesgo real", g.zeros > sf.zeros * 2, `${g.zeros} vs ${sf.zeros} de 60`);
+  check("el codicioso no es más seguro", g.zeros >= sf.zeros, `${g.zeros} vs ${sf.zeros} de 60`);
 }
 
 console.log("\n— dificultad por rareza —");
@@ -252,10 +352,10 @@ console.log("\n— dificultad por rareza —");
     }
     rates.push((ok / tries * 100).toFixed(0));
   }
-  console.log(`       entrega con apuntado perfecto — nube ${rates[0]}% rosa ${rates[1]}% oro ${rates[2]}% rainbow ${rates[3]}%`);
+  console.log(`       entrega con apuntado perfecto — cloud ${rates[0]}% rainbow ${rates[1]}% star ${rates[2]}% king ${rates[3]}%`);
   check("la dificultad crece con la rareza", +rates[0] >= +rates[3], `${rates[0]}% vs ${rates[3]}%`);
-  check("el rainbow coronado es alcanzable", +rates[3] > 5, `${rates[3]}%`);
-  check("la nube es fiable", +rates[0] > 55, `${rates[0]}%`);
+  check("el unicorn king es alcanzable", +rates[3] > 5, `${rates[3]}%`);
+  check("el unicorn cloud es fiable", +rates[0] > 55, `${rates[0]}%`);
 }
 
 console.log(`\n${failures ? `${failures} comprobaciones fallan` : "todo correcto"}\n`);

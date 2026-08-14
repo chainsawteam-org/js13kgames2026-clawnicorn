@@ -1,21 +1,8 @@
-import { type Toy } from "../game/sim";
+import { CEILING, type Toy } from "../game/sim";
 import { FLOOR, MOUTH_X, MOUTH_Z, MOUTH_R, PYRAMID, TERRACES } from "../game/shapes";
 
 const PINK = "#b94d86", DARK = "#302849", WHITE = "#fff8ee", GOLD = "#ffd05d";
-const body = [WHITE, "#ed8caf", "#f2c84f", WHITE];
-const mane = ["#91dfe0", "#d85f99", "#e99a45", "#71c9d9"];
 const SPARKS = 10;
-
-// Extend W's tiny Lambert shader with a pastel rim and cabinet depth haze.
-const stylize = (canvas: HTMLCanvasElement) => {
-  const gl = canvas.getContext("webgl2")!;
-  const source = gl.shaderSource.bind(gl);
-  (gl as any).shaderSource = (shader: WebGLShader, code: string) => source(shader,
-    code.includes("out vec4 c") ? `#version 300 es
-precision highp float;in vec4 v_pos,v_col,v_uv,v_normal;uniform vec3 light;uniform vec4 o;uniform sampler2D sampler;out vec4 c;
-void main(){c=mix(texture(sampler,v_uv.xy),v_col,o.w);if(o.y>0.){vec3 n=normalize(o.x>0.?v_normal.xyz:cross(dFdx(v_pos.xyz),dFdy(v_pos.xyz)));float d=max(0.,dot(light,-n)),r=pow(1.-abs(dot(n,normalize(vec3(0.,.2,1.)))),3.);c=vec4(c.rgb*(o.z+d*.75+max(0.,n.y)*.1)+vec3(.3,.14,.35)*r*.2,c.a);}c.rgb=mix(c.rgb,vec3(.33,.28,.55),(1.-smoothstep(-3.,2.,v_pos.z))*.16);}` : code);
-  return () => (gl as any).shaderSource = source;
-};
 
 const cube = (n: string, g: string, x: number, y: number, z: number,
   w: number, h: number, d: number, b: string, extra: WSettings = {}) =>
@@ -28,9 +15,7 @@ const BX = (TX0 + TX1) / 2, BZ = (TZ0 + TZ1) / 2;
 const BW = TX1 - TX0, BD = TZ1 - TZ0, WALL = .25;
 
 export function createScene(canvas: HTMLCanvasElement, toys: Toy[], shape: number) {
-  const restoreShader = import.meta.env.PROD ? () => {} : stylize(canvas);
   W.reset(canvas);
-  restoreShader();
   W.clearColor("#202541");
   let camDistance = 13;
 
@@ -60,7 +45,7 @@ export function createScene(canvas: HTMLCanvasElement, toys: Toy[], shape: numbe
   cube("underbase", "machine", 0, FLOOR - .96, 0, 10.4, .24, 6.8, DARK);
   cube("back", "machine", 0, .2, -3.25, 10.4, 7.1, .25, "#514d82");
   cube("backGlow", "machine", 0, .25, -3.08, 8.7, 5.5, .05, "#625d96");
-  cube("roof", "machine", 0, 4.5, 0, 11, .8, 7.2, "#43345f");
+  cube("roof", "machine", 0, CEILING + .4, 0, 11, .8, 7.2, "#43345f");
   for (const x of [-5.2, 5.2]) for (const z of [-3.2, 3.2])
     cube(`post${x}${z}`, "machine", x, .35, z, .5, 8.1, .5, x < 0 ? "#8e4879" : PINK);
   for (const x of [-4.94, 4.94]) cube(`lamp${x}`, "machine", x, .25, 3.47, .13, 6.6, .08, "#ffd766");
@@ -126,7 +111,7 @@ export function createScene(canvas: HTMLCanvasElement, toys: Toy[], shape: numbe
   cube("shine1", "machine", -4.65, 1.4, 3.17, .12, 1.5, .06, WHITE, { rz: -28 });
   cube("shine2", "machine", 4.75, -.5, 3.17, .1, 1.1, .06, WHITE, { rz: -28 });
 
-  toys.forEach((p, i) => makeUnicorn(i, p));
+  toys.forEach((p, i) => makePrize(i, p));
 
   W.group({ n: "cart", x: 0, z: 0 });
   cube("cartBody", "cart", 0, 3.68, 0, 1.25, .58, 1, "#a94e83");
@@ -215,38 +200,57 @@ export function createScene(canvas: HTMLCanvasElement, toys: Toy[], shape: numbe
   };
 }
 
-function makeUnicorn(i: number, p: Toy) {
-  const g = `u${i}`, b = body[p.rarity]!, m = mane[p.rarity]!;
-  const cloud = p.rarity === 0, pink = p.rarity === 1;
-  const gold = p.rarity === 2, rainbow = p.rarity === 3;
-  const bw = cloud ? 1.48 : pink ? 1.08 : gold ? 1.3 : 1.24;
-  const bh = cloud ? 1.25 : pink ? 1.08 : gold ? 1.02 : 1.18;
-  const bd = cloud ? 1.08 : pink ? .78 : gold ? .9 : .94;
+function makePrize(i: number, p: Toy) {
+  const g = `u${i}`;
   W.group({ n: g, x: p.x, y: p.y, z: p.z, ry: p.yaw });
-  W.sphere({ n: `${g}b`, g, w: bw, h: bh, d: bd, b });
-  W.sphere({ n: `${g}h`, g, x: .62, y: pink ? .6 : .5,
-    w: pink ? .68 : .8, h: pink ? .92 : .78, d: pink ? .62 : .72, b });
-  W.sphere({ n: `${g}m`, g, x: .98, y: .33, w: .45, h: .34, d: .62, b: p.rarity === 1 ? "#ff9fc5" : WHITE });
+
+  // Arcoíris de peluche: cuatro bandas concéntricas y nubes en los extremos.
+  if (p.rarity === 1) {
+    const colors = ["#9b65e6", "#55ddeb", "#ffc83d", "#e85f91"];
+    for (let band = 0; band < 4; band++) for (let q = 0; q < 5; q++) {
+      const a = Math.PI - q * Math.PI / 4, r = .34 + band * .14;
+      cube(`${g}r${band}${q}`, g, Math.cos(a) * r, -.3 + Math.sin(a) * r * 1.25,
+        0, r * .78, .2, .58, colors[band]!, { rz: a * 180 / Math.PI - 90 });
+    }
+    for (const x of [-.8, .8])
+      W.sphere({ n: `${g}cl${x}`, g, x, y: -.43, w: .78, h: .6, d: .72, b: WHITE });
+    return;
+  }
+
+  // Estrella acolchada: cinco puntas independientes para una silueta inequívoca.
+  if (p.rarity === 2) {
+    W.sphere({ n: `${g}core`, g, w: 1.02, h: 1.02, d: .58, b: GOLD });
+    for (let q = 0; q < 5; q++) {
+      const a = 90 + q * 72, r = a * Math.PI / 180;
+      W.pyramid({ n: `${g}s${q}`, g, x: Math.cos(r) * .48, y: Math.sin(r) * .48,
+        w: .62, h: .9, d: .5, rz: a - 90, b: GOLD });
+    }
+    return;
+  }
+
+  // Los extremos de la escala sí son unicornios: Cloud y King.
+  const cloud = p.rarity === 0, king = p.rarity === 3;
+  const b = cloud ? WHITE : GOLD, m = cloud ? "#91dfe0" : "#8151b5";
+  W.sphere({ n: `${g}b`, g, w: cloud ? 1.48 : 1.24, h: cloud ? 1.25 : 1.18, d: cloud ? 1.08 : .94, b });
+  W.sphere({ n: `${g}h`, g, x: .62, y: cloud ? .5 : .55, w: .8, h: .8, d: .72, b });
+  W.sphere({ n: `${g}m`, g, x: .98, y: .33, w: .45, h: .34, d: .62, b: WHITE });
   for (const z of [-.35, .35]) {
     cube(`${g}l${z}`, g, -.35, -.56, z, .32, .38, .3, b, { rz: 8 });
     cube(`${g}f${z}`, g, .38, -.55, z, .3, .36, .28, b, { rz: -8 });
   }
-  W.pyramid({ n: `${g}horn`, g, x: .72, y: pink ? 1.24 : 1.13, z: 0,
-    size: rainbow ? .42 : .34, h: rainbow ? .9 : .72, b: GOLD });
-  for (const z of [-.3, .3]) W.pyramid({ n: `${g}ear${z}`, g, x: .5, y: pink ? 1.18 : .98, z,
-    size: pink ? .38 : .25, h: pink ? .58 : .36, b });
+  W.pyramid({ n: `${g}horn`, g, x: .72, y: king ? 1.2 : 1.13, z: 0,
+    size: king ? .42 : .34, h: king ? .9 : .72, b: GOLD });
+  for (const z of [-.3, .3]) W.pyramid({ n: `${g}ear${z}`, g, x: .5, y: 1, z,
+    size: .27, h: .38, b });
   cube(`${g}eye1`, g, .99, .65, .29, .09, .12, .08, "#27131e");
   cube(`${g}eye2`, g, .99, .65, -.29, .09, .12, .08, "#27131e");
   for (let q = 0; q < 3; q++)
     W.sphere({
       n: `${g}mane${q}`, g, x: .15 - q * .23, y: .72 - q * .16, z: 0,
-      size: .42, b: rainbow ? ["#55ddeb", "#ffc83d", "#9b65e6"][q]! : m
+      size: .42, b: king && q === 1 ? GOLD : m
     });
   W.sphere({ n: `${g}tail`, g, x: -.75, y: .1, size: cloud ? .55 : .4, b: m });
-  if (gold) for (const z of [-1, 1])
-    W.pyramid({ n: `${g}wing${z}`, g, x: -.12, y: .18, z: z * .68,
-      w: .78, h: .28, d: .8, rx: z * 32, rz: -18, b: "#fff3bd" });
-  if (rainbow) {
+  if (king) {
     cube(`${g}crown`, g, .48, 1.16, 0, .72, .18, .58, GOLD);
     for (let q = -1; q < 2; q++)
       W.pyramid({ n: `${g}c${q}`, g, x: .48, y: 1.42, z: q * .22, size: .25, b: GOLD });

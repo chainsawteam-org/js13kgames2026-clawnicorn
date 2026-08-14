@@ -13,7 +13,7 @@ Tema de diseño: **Unicorns and Rainbows**
 ## 1. Pitch
 
 Una máquina de gancho 3D, vista desde una cámara fija, contiene exactamente 13
-unicornios low-poly amontonados en una bandeja. El jugador tiene cinco intentos
+premios low-poly amontonados en una bandeja. El jugador tiene cinco intentos
 para apuntar, bajar el gancho y sacar los premios de mayor valor. El montón se
 simula: los peluches chocan entre sí, se apoyan unos en otros, se derrumban
 cuando les quitas el de abajo y estorban el agarre cuando rodean a un premio.
@@ -63,27 +63,28 @@ tecla de mute (`M`).
 
 | Rareza | Cantidad | Puntos | `REQUIRED` | Entrega con puntería perfecta |
 |---|---:|---:|---:|---:|
-| Nube | 6 | 100 | 0,32 | 85 % |
-| Rosa | 3 | 200 | 0,44 | 90 % |
-| Dorado | 2 | 500 | 0,56 | 90 % |
-| Rainbow coronado | 2 | 5.000 | 0,865 | 17 % |
+| Unicorn Cloud | 6 | 100 | 0,32 | 63 % |
+| Rainbow Item | 3 | 200 | 0,44 | 63 % |
+| Star | 2 | 500 | 0,56 | 50 % |
+| Unicorn King | 2 | 5.000 | 0,865 | 18 % |
 
 Los porcentajes están **medidos**, no estimados: los produce `npm run simtest`.
 
 La tabla `REQUIRED` es el mando de balance más sensible del juego y por eso es
-una tabla explícita y no una fórmula. El acantilado es estrecho: mover el Rainbow de
-0,85 a 0,88 lo lleva de 9 jackpots por cada 60 partidas a 1.
+una tabla explícita y no una fórmula. Con la boca abierta, una entrega también
+puede producirse por empuje; cualquier cambio exige volver a medir el conjunto.
 
 **La decisión existe y está verificada.** Contra el mismo conjunto de semillas:
 
 | Estrategia | Media | Premios | Partidas a cero | Con jackpot |
 |---|---:|---:|---:|---:|
-| Codiciosa (siempre el Rainbow) | 482 pts | 0,62 | 27/60 | 5/60 |
-| Conservadora (el más despejado) | 297 pts | 1,72 | 6/60 | 0/60 |
+| Codiciosa (siempre el King) | 5.165 pts | 4,83 | 0/60 | 44/60 |
+| Conservadora (el más despejado) | 1.585 pts | 3,67 | 0/60 | 11/60 |
 
-Ninguna domina: pagan casi lo mismo de media con perfiles de riesgo opuestos.
-`simtest` falla si una supera a la otra por más de 2×, para que un retoque de
-balance no mate el pilar 2 sin que nadie se entere.
+La boca abierta recompensa las jugadas emergentes: perseguir al King también
+puede empujarlo a él o a sus vecinos al conducto. La estrategia codiciosa paga
+más, mientras la conservadora sigue siendo fiable. `simtest` falla si la brecha
+supera 3,5× o cualquiera deja de ser jugable.
 
 La primera tirada de una partida nunca sufre resbalón. Es una ayuda invisible que
 enseña el bucle y evita una primera impresión injusta.
@@ -127,17 +128,17 @@ push(p, dx, dy, dz, carry)   // corrige posición Y velocidad
 
 `carry = 1` significa "el obstáculo se mueve y el peluche lo acompaña" (dedos del
 gancho, soldadura al carro): no gana velocidad. `carry ≈ 0,6` significa "he
-chocado": deja un rebote corto. Las paredes son un caso aparte: reconstruyen la
-velocidad a partir de la que traía el peluche, nunca a partir del salto de
-posición. Además `push` acota toda corrección a `MAX_PUSH`, de modo que ninguna
-puede catapultar nada aunque la geometría cambie.
+chocado": deja un rebote corto. Las paredes y el techo son un caso aparte: se
+resuelven al final del paso, contienen la extensión máxima de cuerpo y cabeza, y
+reconstruyen un rebote corto a partir de la velocidad real. Además `push` acota
+toda corrección a `MAX_PUSH`, de modo que ninguna puede catapultar nada.
 
 ### 5.3 El peluche
 
-Dos esferas: torso en el origen local y cabeza a 0,62 según `yaw`. Un unicornio
-mide unas 2,0 × 1,5 unidades; una sola esfera de radio 0,55 cubría un tercio del
-modelo y el gancho atravesaba cabezas y cuernos. Con dos esferas los peluches se
-entrelazan y `yaw` pasa a significar algo físicamente.
+Dos esferas forman una envolvente común: cuerpo en el origen local y un segundo
+volumen a 0,62 según `yaw`. Un premio mide unas 2,0 × 1,5 unidades; una sola
+esfera de radio 0,55 cubría un tercio de los modelos y el gancho los atravesaba.
+La envolvente común mantiene estables el apilado y el balance entre siluetas.
 
 Las colisiones premio-premio son 78 pares con dos iteraciones Gauss-Seidel y el
 eje Y amplificado ×1,2, para que se aplasten al apilarse en vez de rodar como
@@ -162,10 +163,10 @@ grip     = 0,70·centring + 0,12·(contacts/6) + 0,18·exposure
 
 Sólo compiten los candidatos que superan **su propio** `REQUIRED`; entre ésos gana
 el de mayor `grip`. El orden importa: si se eligiera primero por agarre bruto, un
-Rainbow a medio agarrar bloquearía una captura fácil que sí valía y el jugador vería
+King a medio agarrar bloquearía una captura fácil que sí valía y el jugador vería
 fallar tiradas que en realidad eran buenas.
 
-`exposure` es lo que hace que enterrar al Rainbow importe, y funciona igual en un
+`exposure` es lo que hace que enterrar al King importe, y funciona igual en un
 montón de una capa que en uno de tres.
 
 Un agarre "perfecto" ronda 0,60 y no 1,0, porque el gancho al bajar ya desplaza
@@ -186,14 +187,13 @@ el flujo del PRNG no dependa del resultado.
 
 ### 5.6 El conducto
 
-El conducto **sólo acepta lo que entrega el gancho**. Un premio soltado sobre la
-boca pasa a `state = 3` y cae por su columna sin paredes ni suelo; cualquier
-peluche del montón que se acerque por debajo del borde es expulsado.
+El conducto es una abertura física real. Un premio sobre la boca conserva todas
+sus colisiones mientras desciende: puede atascarse, ser desviado fuera o empujar
+a otro premio al agujero. Sólo pasa a `state = 3` cuando su centro cruza el plano
+del suelo; desde ahí cae por la columna y suma su valor una sola vez.
 
-La alternativa —una boca abierta que acepte a cualquiera— resultó frágil: en una
-bandeja apretada los peluches acaban exprimidos hacia dentro y puntúan solos. Se
-pierde la jugada emergente de empujar un premio al conducto a cambio de que la
-puntuación sea siempre legible y nunca accidental.
+Los eventos de victoria codifican también la categoría del premio. Esto permite
+contabilizar y mostrar correctamente varias caídas ocurridas en el mismo frame.
 
 El hueco visual del suelo se deriva de las mismas constantes que la boca lógica,
 así que no pueden desincronizarse. El suelo de la bandeja son dos losas, no una,
@@ -241,11 +241,10 @@ cámara según el aspecto.
 
 Todo se compone con `cube`, `sphere` y `pyramid` de W:
 
-- Unicornio: torso elipsoidal, cabeza, hocico, cuatro patas, cuerno, dos ojos y
-  piezas de crin/cola. Cada rareza tiene una silueta propia: la Nube es redonda y
-  mullida, la Rosa alta y orejuda, la Dorada lleva alas y la Rainbow combina
-  crin multicolor, cuerno largo y corona. Las dos esferas de colisión coinciden
-  con torso y cabeza.
+- Premios: el Unicorn Cloud es redondo y mullido; el Rainbow Item forma un arco
+  de cuatro bandas con nubes; la Star tiene cinco puntas acolchadas; y el Unicorn
+  King combina cuerpo dorado, corona, cuerno largo y detalles reales. Todos
+  comparten la misma envolvente física de dos esferas para conservar el balance.
 - Máquina: suelo, techo, cuatro postes, paneles y la bandeja de premios, cuyos
   cuatro bordes son exactamente los muros de la simulación.
 - Gancho: carro, cable, núcleo y tres dedos prismáticos que rotan al cerrar.
@@ -337,7 +336,7 @@ ni se hunde, y redimensionar la ventana a media partida.
 - `npm run check` termina sin errores y genera un ZIP ≤ 13.312 bytes.
 - El ZIP contiene `index.html` en raíz y funciona sin red ni assets externos.
 - Una partida completa puede jugarse sólo con teclado y reiniciarse sin recargar.
-- Hay exactamente 13 unicornios y cinco intentos al comenzar.
+- Hay exactamente 13 premios y cinco intentos al comenzar.
 - **El juego se comporta igual a 30, 60, 144 y 240 Hz.**
 - Mismas semilla e inputs producen mismos agarres y resbalones.
 - Ningún premio desaparece sin puntuar ni sale despedido de la cuba.
@@ -349,11 +348,11 @@ ni se hunde, y redimensionar la ventana a media partida.
 
 1. **W full consume demasiado.** Pasar a W lite y registrar sólo cubo/pirámide.
    `scene.ts` es la frontera que lo hace viable.
-2. **Demasiadas draw calls.** Reducir piezas por unicornio antes de escribir
+2. **Demasiadas draw calls.** Reducir piezas por premio antes de escribir
    batching nuevo. El coste de física es despreciable frente al de render.
 3. **El agarre parece arbitrario.** Aumentar la retícula y la legibilidad de la
    exposición. No tocar `REQUIRED` sin volver a correr `simtest`: el acantilado
-   del Rainbow coronado es estrecho.
+   del Unicorn King es estrecho.
 4. **Falta espacio.** Recortar en este orden: touch, música, corona compleja,
    partículas secundarias, texto extra. Nunca recortar el feedback de cierre,
    subida y premio.

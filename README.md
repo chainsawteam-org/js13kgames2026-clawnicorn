@@ -1,6 +1,6 @@
 # UNICORN CLAW — js13kGames 2026
 
-Juego 3D low-poly para js13kGames: una máquina de gancho con 13 unicornios de
+Juego 3D low-poly para js13kGames: una máquina de gancho con 13 premios de
 peluche, cinco intentos y una única meta, maximizar la puntuación.
 
 El documento de referencia para implementar el juego es
