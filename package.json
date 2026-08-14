@@ -18,7 +18,6 @@
     "roadroller": "2.1.0",
     "terser": "5.50.0",
     "typescript": "7.0.2",
-    "vite": "8.2.1",
-    "w": "github:xem/W#semver:1.0.2"
+    "vite": "8.2.1"
   }
 }

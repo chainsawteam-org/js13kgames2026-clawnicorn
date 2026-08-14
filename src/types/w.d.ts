@@ -17,18 +17,3 @@ type WSettings = {
 };
 
 interface ImportMeta { readonly env: { readonly PROD: boolean } }
-
-declare const W: {
-  gl: WebGL2RenderingContext;
-  canvas: HTMLCanvasElement;
-  reset(canvas: HTMLCanvasElement): void;
-  camera(settings: WSettings): void;
-  light(settings: WSettings): void;
-  ambient(value: number): void;
-  clearColor(color: string): void;
-  group(settings: WSettings): void;
-  cube(settings: WSettings): void;
-  sphere(settings: WSettings): void;
-  pyramid(settings: WSettings): void;
-  move(settings: WSettings): void;
-};

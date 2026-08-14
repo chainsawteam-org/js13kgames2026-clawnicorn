@@ -48,7 +48,7 @@ export type Toy = {
   rarity: number;
   state: number;      // 0 montón, 1 agarrado, 2 ganado, 3 cayendo por el conducto
   sleep: number;
-  slipAt: number;     // fracción de la subida en la que resbala, -1 si no resbala
+  slipAt: number;     // fracción de resbalón; -1 ninguno, -2 encajado sin agarre
 };
 
 export type Sim = ReturnType<typeof createSim>;
@@ -79,7 +79,8 @@ export function createSim() {
     toys: [] as Toy[],
     phase: P_TITLE, time: 0,
     score: 0, tries: 5,
-    clawX: 0, clawY: CLAW_TOP, clawZ: 0, close: 0, dropY: CLAW_BOTTOM,
+    clawX: 0, clawY: CLAW_TOP, clawZ: 0, close: 0,
+    dropY: CLAW_BOTTOM,
     vx: 0, vz: 0, fromX: 0, fromZ: 0,
     held: -1, won: false, firstThrow: true,
     shape: -1,
@@ -178,22 +179,21 @@ function supportSolve(s: Sim, p: Toy) {
 const headX = (p: Toy) => Math.cos(p.yaw * Math.PI / 180) * HEAD_X;
 const headZ = (p: Toy) => -Math.sin(p.yaw * Math.PI / 180) * HEAD_X;
 
-// Cápsula contra el torso. Devuelve 1 si toca. `apply` permite contar sin mover.
+// Cápsula contra el torso. Devuelve 1 si toca.
 function capsule(p: Toy, ax: number, ay: number, az: number,
   bx: number, by: number, bz: number, r: number, apply: boolean) {
   const abx = bx - ax, aby = by - ay, abz = bz - az;
   const len = abx * abx + aby * aby + abz * abz;
-  const q = len > 1e-9 ? clamp(((p.x - ax) * abx + (p.y - ay) * aby + (p.z - az) * abz) / len, 0, 1) : 0;
+  const q = clamp(((p.x - ax) * abx + (p.y - ay) * aby + (p.z - az) * abz) / len, 0, 1);
   const dx = p.x - (ax + abx * q), dy = p.y - (ay + aby * q), dz = p.z - (az + abz * q);
-  const d = Math.hypot(dx, dy, dz) || 1e-4;
-  const hit = R_BODY + r - d;
+  const d = Math.hypot(dx, dy, dz) || H, hit = R_BODY + r - d;
   if (hit <= 0) return 0;
   // carry 1: el claw se mueve, el peluche lo acompaña; nunca inyecta impulso.
   if (apply) push(p, dx / d * hit, dy / d * hit, dz / d * hit, 1);
   return 1;
 }
 
-// Las seis cápsulas de los dedos más el émbolo central.
+// Las seis cápsulas de las patas.
 function clawSolve(s: Sim, p: Toy, apply: boolean) {
   const a = .85 - s.close * .4, c = a - .4;
   const ex = .75 * Math.sin(a), ey = -.75 * Math.cos(a);
@@ -206,7 +206,6 @@ function clawSolve(s: Sim, p: Toy, apply: boolean) {
     n += capsule(p, s.clawX, py, s.clawZ, bx, by, bz, .1, apply);
     n += capsule(p, bx, by, bz, s.clawX + ux * tx, py + ty, s.clawZ + uz * tx, .12, apply);
   }
-  capsule(p, s.clawX, s.clawY - .72, s.clawZ, s.clawX, s.clawY - .38, s.clawZ, .11, apply);
   return n;
 }
 
@@ -215,7 +214,25 @@ function clawSolve(s: Sim, p: Toy, apply: boolean) {
 function constrain(s: Sim, clawOn: boolean, loading = false) {
   const toys = s.toys;
 
-  if (clawOn) for (const p of toys) if (!p.state) clawSolve(s, p, true);
+  if (clawOn) {
+    // Varios contactos pueden acuñar un premio aunque las reglas no hayan
+    // concedido el agarre. Las formas más difíciles exigen más puntos de apoyo.
+    for (const p of toys) if (!p.state) {
+      if (p.slipAt === -2) {
+        if (s.phase > P_CARRY) p.slipAt = -1;
+        else push(p, s.clawX - p.x, s.clawY + HOLD_Y - p.y, s.clawZ - p.z, 1);
+      }
+    }
+    // El premio oficial bloquea el cierre. Durante el transporte ya comparte
+    // pose con la garra mediante el muelle; seguir proyectándolo contra las
+    // patas lo expulsaría lateralmente en cada paso.
+    for (const p of toys) if (!p.state || p.state === 1 && s.phase <= P_PAUSE) {
+      const contacts = clawSolve(s, p, false);
+      if (s.close > .2 && contacts) s.vx = 1;
+      if (!p.state && s.phase === P_CLOSE && contacts > p.rarity) p.slipAt = -2;
+      clawSolve(s, p, true);
+    }
+  }
 
   // Premio agarrado: muelle al carro, no muro rígido. Cuelga, se retrasa y se
   // balancea durante la subida y el traslado; al soltarlo la velocidad es real.
@@ -403,8 +420,8 @@ function advance(s: Sim) {
     s.clawY = CLAW_TOP - ease(t) * (CLAW_TOP - s.dropY);
     if (t >= 1) { s.events.push(EV_CLOSE); resolveGrab(s); goto(s, P_CLOSE); }
   } else if (phase === P_CLOSE) {
-    s.close = ease(t);
-    if (t >= 1) { s.close = 1; goto(s, P_PAUSE); }
+    if (!s.vx) s.close = ease(t);
+    if (t >= 1) goto(s, P_PAUSE);
   } else if (phase === P_PAUSE) {
     if (t >= 1) goto(s, P_LIFT);
   } else if (phase === P_LIFT) {
@@ -418,13 +435,12 @@ function advance(s: Sim) {
     s.clawZ = s.fromZ + (MOUTH_Z - s.fromZ) * e;
     if (t >= 1) goto(s, P_DROP);
   } else if (phase === P_DROP) {
-    s.close = 1 - ease(clamp(s.time / .25, 0, 1));
+    s.close *= .9;
     if (s.close < .72) release(s, false);
     if (t >= 1) { s.fromX = s.clawX; s.fromZ = s.clawZ; goto(s, P_RETURN); }
   } else if (phase === P_RETURN) {
     const e = 1 - ease(t);
     s.clawX = s.fromX * e; s.clawZ = s.fromZ * e;
-    s.close = 0;
     if (t >= 1) goto(s, P_SETTLE);
   } else if (phase === P_SETTLE) {
     if (t >= 1) {

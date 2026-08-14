@@ -13,7 +13,7 @@ const scoreEl = $("#score"), triesEl = $("#tries");
 const message = $<HTMLElement>("#message"), sub = $<HTMLElement>("#sub");
 const overlay = $<HTMLElement>(".overlay"), toast = $<HTMLElement>("#toast");
 const muteEl = $<HTMLElement>("#mute");
-const grabEl = document.querySelector<HTMLElement>("#grab");
+const grabEl = $<HTMLButtonElement>("#grab");
 const stick = $<HTMLElement>("#stick");
 
 const keys: Record<string, boolean> = {};
@@ -48,6 +48,7 @@ function hud() {
   if (sim.score !== shownScore) { scoreEl.textContent = sim.score.toLocaleString("es-ES"); shownScore = sim.score; }
   if (sim.tries !== shownTries) {
     triesEl.textContent = `${sim.tries} / 5`;
+    grabEl.textContent = `${sim.tries}`;
     shownTries = sim.tries;
   }
 }
@@ -195,7 +196,7 @@ stick.addEventListener("lostpointercapture", e => releaseStick(e.pointerId));
 const press = (e: PointerEvent, action: () => void) => {
   e.preventDefault(); e.stopPropagation(); action();
 };
-grabEl?.addEventListener("pointerdown", e => press(e, fire));
+grabEl.addEventListener("pointerdown", e => press(e, fire));
 muteEl.addEventListener("pointerdown", e => press(e, toggleMute));
 
 function releaseCamera(id?: number) {

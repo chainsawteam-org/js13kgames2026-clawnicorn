@@ -205,6 +205,30 @@ console.log("\n— consumo de intentos —");
   check("terminar la animación no vuelve a descontarlo", s.tries === 4);
 }
 
+console.log("\n— cierre con contacto y encaje pasivo —");
+{
+  const s = S.createSim(); S.reset(s, 22);
+  for (const q of s.toys) q.state = 2;
+  const p = s.toys[0];
+  p.state = 0; p.rarity = 1; p.x = p.ox = .45; p.z = p.oz = 0;
+  p.y = p.oy = S.FLOOR + S.FEET; p.yaw = p.oyaw = 0; p.sleep = 0;
+  // Arranca directamente la fase mecánica: no hay candidato oficial, de modo
+  // que cualquier movimiento posterior sólo puede venir del encaje entre patas.
+  s.phase = S.P_CLOSE; s.time = 0; s.clawX = s.clawZ = 0;
+  s.clawY = s.dropY = p.y + 1.3; s.close = 0; s.held = -1;
+  s.vx = 0;
+  const startY = p.y;
+  let guard = 0;
+  while (s.phase !== S.P_PAUSE && guard++ < 300) S.step(s);
+  check("la garra se detiene antes de atravesar el premio",
+    s.phase === S.P_PAUSE && s.close < .9, s.close.toFixed(2));
+
+  let maxY = p.y;
+  while (s.phase !== S.P_CARRY && guard++ < 800) { S.step(s); maxY = Math.max(maxY, p.y); }
+  check("un premio no agarrado puede subir encajado entre las patas",
+    s.held < 0 && p.state === 0 && maxY > startY + 1, `${(maxY - startY).toFixed(2)} u`);
+}
+
 console.log("\n— paredes laterales —");
 {
   const cases = [
