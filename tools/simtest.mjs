@@ -107,20 +107,35 @@ const greedy = strategy(pickGreedy, null);
 
 console.log("\n— asentado inicial —");
 {
+  for (let shape = 0; shape < 3; shape++) {
+    const s = S.createSim();
+    S.reset(s, 12345 + shape);
+    const low = s.toys.filter(p => p.y < S.surface(s.shape, p.x, p.z).y + S.FEET - .002);
+    const inChute = s.toys.filter(p => Math.hypot(p.x - S.MOUTH_X, p.z - S.MOUTH_Z) < S.MOUTH_R);
+    const nan = s.toys.filter(p => !Number.isFinite(p.x + p.y + p.z + p.yaw));
+    check(`forma ${shape}: 13 premios apoyados`, s.shape === shape && s.toys.length === 13 && !low.length,
+      `${low.length} bajo el relieve`);
+    check(`forma ${shape}: conducto libre y sin NaN`, !inChute.length && !nan.length);
+    check(`forma ${shape}: el montón queda dormido`, s.toys.every(p => p.sleep > 0));
+  }
   const s = S.createSim();
-  S.reset(s, 12345);
-  const rest = S.FLOOR + .75;
-  const low = s.toys.filter(p => p.y < rest - .06);
-  const inChute = s.toys.filter(p => Math.hypot(p.x - S.MOUTH_X, p.z - S.MOUTH_Z) < S.MOUTH_R);
-  const nan = s.toys.filter(p => !Number.isFinite(p.x + p.y + p.z + p.yaw));
-  const asleep = s.toys.filter(p => p.sleep > 0);
-  check("13 premios en el montón", s.toys.length === 13);
-  check("ninguno atraviesa el suelo", low.length === 0, `${low.length} por debajo de ${rest.toFixed(2)}`);
-  check("ninguno cae solo al conducto", inChute.length === 0, `${inChute.length} dentro de la boca`);
-  check("sin NaN", nan.length === 0);
-  check("el montón queda dormido", asleep.length === 13);
-  const ys = s.toys.map(p => p.y).sort((a, b) => a - b);
-  console.log(`       altura del montón: ${ys[0].toFixed(2)} … ${ys[12].toFixed(2)}`);
+  let repeated = 0, last = -1;
+  for (let i = 0; i < 20; i++) { S.reset(s, 7000 + i * 97); if (s.shape === last) repeated++; last = s.shape; }
+  check("20 reinicios no repiten forma", repeated === 0);
+}
+
+console.log("\n— entrada analógica —");
+{
+  const velocity = (x, z) => {
+    const s = S.createSim(); s.phase = S.P_AIM; s.inX = x; s.inZ = z; S.step(s);
+    return [s.vx, s.vz];
+  };
+  const axis = velocity(1, 0), diagonal = velocity(1, 1), analog = velocity(.3, .4), over = velocity(3, 4), zero = velocity(0, 0);
+  const unit = Math.hypot(...axis);
+  check("diagonal digital conserva magnitud unitaria", Math.abs(Math.hypot(...diagonal) - unit) < 1e-12);
+  check("(.3,.4) conserva su magnitud .5", Math.abs(Math.hypot(...analog) - unit * .5) < 1e-12);
+  check("vector mayor que uno se limita a uno", Math.abs(Math.hypot(...over) - unit) < 1e-12);
+  check("entrada cero permanece cero", zero[0] === 0 && zero[1] === 0);
 }
 
 console.log("\n— independencia del refresco (el bug original) —");
@@ -156,7 +171,8 @@ console.log("\n— determinismo —");
 console.log("\n— integridad tras 40 partidas (jugador sensato, puntería imperfecta) —");
 {
   let bad = 0, lost = 0, nan = 0, out = 0, unfinished = 0, scoreless = 0;
-  const rarities = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 };
+  const rarities = { 0: 0, 1: 0, 2: 0, 3: 0 };
+  const byShape = Array.from({ length: 3 }, () => ({ games: 0, wins: 0, score: 0, zeros: 0 }));
   let totalWins = 0, totalGrabs = 0, totalEmpty = 0, totalSlips = 0, totalScore = 0;
   const sensible = strategy(pickSafe, makeJitter(987654321, .44));
   for (let i = 0; i < 40; i++) {
@@ -171,6 +187,7 @@ console.log("\n— integridad tras 40 partidas (jugador sensato, puntería imper
       if (p.state !== 2 && (Math.abs(p.x) > 4.6 || Math.abs(p.z) > 2.7 || p.y < S.FLOOR - .5)) out++;
     }
     if (r.s.score === 0) scoreless++;
+    const form = byShape[r.s.shape]; form.games++; form.wins += r.log.wins; form.score += r.s.score; form.zeros += +(r.s.score === 0);
     totalWins += r.log.wins; totalGrabs += r.log.grabs; totalEmpty += r.log.empty;
     totalSlips += r.log.slips; totalScore += r.s.score;
     for (const k in r.log.byRarity) rarities[k] += r.log.byRarity[k];
@@ -184,7 +201,8 @@ console.log("\n— integridad tras 40 partidas (jugador sensato, puntería imper
   check("un jugador sensato rara vez se va en blanco", scoreless <= 4, `${scoreless}/40 sin puntuar`);
   console.log(`       agarres ${totalGrabs} · vacíos ${totalEmpty} · resbalones ${totalSlips} · entregados ${totalWins}`);
   console.log(`       media por partida: ${(totalScore / 40).toFixed(0)} pts, ${(totalWins / 40).toFixed(2)} premios`);
-  console.log(`       por rareza — nube ${rarities[0]} rosa ${rarities[1]} oro ${rarities[2]} rainbow ${rarities[3]} king ${rarities[4]}`);
+  console.log(`       por rareza — nube ${rarities[0]} rosa ${rarities[1]} oro ${rarities[2]} rainbow ${rarities[3]}`);
+  console.log("       por forma — " + byShape.map((v, i) => `${i}: ${(v.score / v.games).toFixed(0)} pts, ${(v.wins / v.games).toFixed(2)} premios, ${v.zeros}/${v.games} a cero`).join(" · "));
 }
 
 console.log("\n— ¿hay decisión? codicioso contra conservador —");
@@ -217,7 +235,7 @@ console.log("\n— dificultad por rareza —");
 {
   // Agarre centrado y perfecto sobre un único premio de cada rareza.
   const rates = [];
-  for (let rarity = 0; rarity < 5; rarity++) {
+  for (let rarity = 0; rarity < 4; rarity++) {
     let ok = 0, tries = 60;
     for (let i = 0; i < tries; i++) {
       const s = S.createSim();
@@ -234,9 +252,9 @@ console.log("\n— dificultad por rareza —");
     }
     rates.push((ok / tries * 100).toFixed(0));
   }
-  console.log(`       entrega con apuntado perfecto — nube ${rates[0]}% rosa ${rates[1]}% oro ${rates[2]}% rainbow ${rates[3]}% king ${rates[4]}%`);
-  check("la dificultad crece con la rareza", +rates[0] >= +rates[4], `${rates[0]}% vs ${rates[4]}%`);
-  check("el king es alcanzable", +rates[4] > 5, `${rates[4]}%`);
+  console.log(`       entrega con apuntado perfecto — nube ${rates[0]}% rosa ${rates[1]}% oro ${rates[2]}% rainbow ${rates[3]}%`);
+  check("la dificultad crece con la rareza", +rates[0] >= +rates[3], `${rates[0]}% vs ${rates[3]}%`);
+  check("el rainbow coronado es alcanzable", +rates[3] > 5, `${rates[3]}%`);
   check("la nube es fiable", +rates[0] > 55, `${rates[0]}%`);
 }
 

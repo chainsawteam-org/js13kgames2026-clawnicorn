@@ -16,6 +16,8 @@ type WSettings = {
   [key: string]: unknown;
 };
 
+interface ImportMeta { readonly env: { readonly PROD: boolean } }
+
 declare const W: {
   gl: WebGL2RenderingContext;
   canvas: HTMLCanvasElement;

@@ -35,7 +35,7 @@ el desenlace.
    sombreado plano y audio generado.
 
 MVP obligatorio: escena 3D, 13 premios, control X/Z, ciclo completo del gancho,
-cinco intentos, cinco rarezas, puntuación, final y reinicio, teclado, audio
+cinco intentos, cuatro rarezas, puntuación, final y reinicio, teclado, audio
 procedural y feedback visual de éxito/fallo.
 
 Fuera del MVP: modelos externos, texturas, sombras reales, postprocesado,
@@ -63,24 +63,23 @@ tecla de mute (`M`).
 
 | Rareza | Cantidad | Puntos | `REQUIRED` | Entrega con puntería perfecta |
 |---|---:|---:|---:|---:|
-| Nube | 6 | 100 | 0,33 | 93 % |
-| Rosa | 3 | 200 | 0,45 | 90 % |
-| Dorado | 2 | 500 | 0,57 | 82 % |
-| Rainbow | 1 | 1.000 | 0,78 | 55 % |
-| King | 1 | 5.000 | 0,87 | 20 % |
+| Nube | 6 | 100 | 0,32 | 85 % |
+| Rosa | 3 | 200 | 0,44 | 90 % |
+| Dorado | 2 | 500 | 0,56 | 90 % |
+| Rainbow coronado | 2 | 5.000 | 0,865 | 17 % |
 
 Los porcentajes están **medidos**, no estimados: los produce `npm run simtest`.
 
 La tabla `REQUIRED` es el mando de balance más sensible del juego y por eso es
-una tabla explícita y no una fórmula. El acantilado es estrecho: mover el King de
+una tabla explícita y no una fórmula. El acantilado es estrecho: mover el Rainbow de
 0,85 a 0,88 lo lleva de 9 jackpots por cada 60 partidas a 1.
 
 **La decisión existe y está verificada.** Contra el mismo conjunto de semillas:
 
 | Estrategia | Media | Premios | Partidas a cero | Con jackpot |
 |---|---:|---:|---:|---:|
-| Codiciosa (siempre el King) | 312 pts | 0,40 | 41/60 | 3/60 |
-| Conservadora (el más despejado) | 342 pts | 1,88 | 5/60 | 0/60 |
+| Codiciosa (siempre el Rainbow) | 482 pts | 0,62 | 27/60 | 5/60 |
+| Conservadora (el más despejado) | 297 pts | 1,72 | 6/60 | 0/60 |
 
 Ninguna domina: pagan casi lo mismo de media con perfiles de riesgo opuestos.
 `simtest` falla si una supera a la otra por más de 2×, para que un retoque de
@@ -163,10 +162,10 @@ grip     = 0,70·centring + 0,12·(contacts/6) + 0,18·exposure
 
 Sólo compiten los candidatos que superan **su propio** `REQUIRED`; entre ésos gana
 el de mayor `grip`. El orden importa: si se eligiera primero por agarre bruto, un
-King a medio agarrar bloquearía una captura fácil que sí valía y el jugador vería
+Rainbow a medio agarrar bloquearía una captura fácil que sí valía y el jugador vería
 fallar tiradas que en realidad eran buenas.
 
-`exposure` es lo que hace que enterrar al King importe, y funciona igual en un
+`exposure` es lo que hace que enterrar al Rainbow importe, y funciona igual en un
 montón de una capa que en uno de tres.
 
 Un agarre "perfecto" ronda 0,60 y no 1,0, porque el gancho al bajar ya desplaza
@@ -243,7 +242,10 @@ cámara según el aspecto.
 Todo se compone con `cube`, `sphere` y `pyramid` de W:
 
 - Unicornio: torso elipsoidal, cabeza, hocico, cuatro patas, cuerno, dos ojos y
-  piezas de crin/cola. Las dos esferas de colisión coinciden con torso y cabeza.
+  piezas de crin/cola. Cada rareza tiene una silueta propia: la Nube es redonda y
+  mullida, la Rosa alta y orejuda, la Dorada lleva alas y la Rainbow combina
+  crin multicolor, cuerno largo y corona. Las dos esferas de colisión coinciden
+  con torso y cabeza.
 - Máquina: suelo, techo, cuatro postes, paneles y la bandeja de premios, cuyos
   cuatro bordes son exactamente los muros de la simulación.
 - Gancho: carro, cable, núcleo y tres dedos prismáticos que rotan al cerrar.
@@ -351,7 +353,7 @@ ni se hunde, y redimensionar la ventana a media partida.
    batching nuevo. El coste de física es despreciable frente al de render.
 3. **El agarre parece arbitrario.** Aumentar la retícula y la legibilidad de la
    exposición. No tocar `REQUIRED` sin volver a correr `simtest`: el acantilado
-   del King es estrecho.
+   del Rainbow coronado es estrecho.
 4. **Falta espacio.** Recortar en este orden: touch, música, corona compleja,
    partículas secundarias, texto extra. Nunca recortar el feedback de cierre,
    subida y premio.
