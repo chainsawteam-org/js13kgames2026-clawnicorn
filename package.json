@@ -1,0 +1,23 @@
+{
+  "name": "js13kgames2026-clawnicorn",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "build": "node tools/build.mjs",
+    "build:plain": "node tools/build.mjs --no-roadroller",
+    "preview": "vite preview",
+    "check": "npm run typecheck && npm run build"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "fflate": "0.8.3",
+    "roadroller": "2.1.0",
+    "terser": "5.50.0",
+    "typescript": "7.0.2",
+    "vite": "8.2.1",
+    "w": "github:xem/W#semver:1.0.2"
+  }
+}
