@@ -17,6 +17,8 @@ type WSettings = {
 };
 
 declare const W: {
+  gl: WebGL2RenderingContext;
+  canvas: HTMLCanvasElement;
   reset(canvas: HTMLCanvasElement): void;
   camera(settings: WSettings): void;
   light(settings: WSettings): void;

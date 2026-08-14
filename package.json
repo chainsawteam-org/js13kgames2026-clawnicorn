@@ -8,8 +8,9 @@
     "typecheck": "tsc --noEmit",
     "build": "node tools/build.mjs",
     "build:plain": "node tools/build.mjs --no-roadroller",
+    "simtest": "node tools/simtest.mjs",
     "preview": "vite preview",
-    "check": "npm run typecheck && npm run build"
+    "check": "npm run typecheck && npm run simtest && npm run build"
   },
   "devDependencies": {
     "esbuild": "0.28.2",
