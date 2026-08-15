@@ -130,8 +130,11 @@ export const W = {
     const program = gl.createProgram()!;
     gl.attachShader(program, compile(gl, gl.VERTEX_SHADER,
       "#version 300 es\nprecision highp float;in vec4 p,c;uniform mat4 v,m;out vec4 q,k;void main(){gl_Position=v*(q=m*p);k=c;}"));
+    // El max(0.) no es opcional: sin él las caras que dan la espalda a la luz
+    // reciben un factor negativo que se come el ambiente y las deja en negro
+    // puro, así que sobre el fondo oscuro la geometría parece transparente.
     gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER,
-      "#version 300 es\nprecision highp float;in vec4 q,k;uniform vec3 l;uniform float a;out vec4 c;void main(){c=vec4(k.rgb*(dot(l,-normalize(cross(dFdx(q.xyz),dFdy(q.xyz))))+a),k.a);}"));
+      "#version 300 es\nprecision highp float;in vec4 q,k;uniform vec3 l;uniform float a;out vec4 c;void main(){c=vec4(k.rgb*(max(0.,dot(l,-normalize(cross(dFdx(q.xyz),dFdy(q.xyz)))))+a),k.a);}"));
     gl.linkProgram(program);
     gl.useProgram(program);
     positionLocation = gl.getAttribLocation(program, "p");
