@@ -24,7 +24,7 @@ let pointerX = 0, pointerY = 0, camYaw = 0, camPitch = 14;
 let touchX = 0, touchZ = 0, stickPointer = -1, cameraPointer = -1;
 let sparkT = -1, sparkX = 0, sparkY = 0, sparkZ = 0, toastT = 0;
 let audio: AudioContext | undefined;
-let shownScore = -1, shownTries = -1;
+let shownScore = -1, shownTries = -1, crowned = false;
 
 const clamp = (v: number, a: number, b: number) => v < a ? a : v > b ? b : v;
 
@@ -74,7 +74,7 @@ function newGame() {
     scene.resize(camYaw, camPitch);
   } else scene.setShape(sim.shape);
   scene.hideSparks();
-  sparkT = -1; toastT = 0; acc = 0; last = performance.now();
+  sparkT = -1; toastT = 0; acc = 0; last = performance.now(); crowned = false;
   toast.classList.remove("show");
   hud();
   message.textContent = "UNICORN CLAW";
@@ -110,18 +110,21 @@ function handleEvents() {
     else if (e === EV_SLIP) tone(140, .3, "sawtooth");
     else if (e >= EV_WIN) {
       const r = e - EV_WIN;
+      if (r === 3) crowned = true;
       showToast(`+${POINTS[r]}`, .9);
       sparkT = 0; sparkX = sim.mx; sparkY = FLOOR + .5; sparkZ = sim.mz;
       tone(r > 2 ? 880 : 620, .4, "triangle");
     }
     else if (e === EV_EMPTY && !sim.won) showToast("MISSED!");
     else if (e === EV_OVER) {
-      // Los umbrales siguen a la tabla de puntos: JACKPOT sólo si ha caído un King,
-      // GREAT HAUL a partir de un Unicorn más algo de resto.
-      message.textContent = sim.score >= 5000 ? "JACKPOT!" : sim.score >= 2000 ? "GREAT HAUL!" : "GAME OVER";
+      // JACKPOT es "ha caído un King", y con el King en 2.000 ya no basta con
+      // mirar la puntuación: 2.000 también salen de dos Unicorns. GREAT HAUL sigue
+      // a la tabla de puntos, un Unicorn más algo de resto.
+      const great = sim.score >= 1250;
+      message.textContent = crowned ? "JACKPOT!" : great ? "GREAT HAUL!" : "GAME OVER";
       sub.textContent = `${sim.score} POINTS  •  SPACE / R TO PLAY AGAIN`;
       overlay.classList.remove("hidden");
-      tone(sim.score >= 2000 ? 660 : 180, .5, "triangle");
+      tone(crowned || great ? 660 : 180, .5, "triangle");
     }
   }
   sim.events.length = 0;

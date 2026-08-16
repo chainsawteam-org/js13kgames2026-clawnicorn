@@ -143,8 +143,12 @@ console.log("\n— asentado inicial —");
       for (let i = 0; i < 1800; i++) S.step(w);
       idle += w.score;
     }
-    check(`forma ${shape}: esperar sin jugar casi no entrega premios`, idle <= 500,
-      `${idle} pts en 4 partidas`);
+    // El listón se expresa en premios, no en puntos sueltos: eran 500 cuando el
+    // premio barato valía 100 —cinco de los baratos— y quedaba obsoleto en cuanto
+    // se reescala la tabla. Atado a POINTS mide siempre lo mismo.
+    const floor = S.POINTS[0] * 5;
+    check(`forma ${shape}: esperar sin jugar casi no entrega premios`, idle <= floor,
+      `${idle} pts en 4 partidas (listón ${floor})`);
   }
   const s = S.createSim();
   let repeated = 0, last = -1;
@@ -161,10 +165,17 @@ console.log("\n— geometría de las formas —");
       for (let z = S.Z0 - .6; z <= S.Z1 + .6; z += .1) {
         const q = S.surface(shape, x, z);
         const unit = Math.abs(Math.hypot(q.nx, q.ny, q.nz) - 1) < 1e-9;
-        if (!Number.isFinite(q.y) || q.y < S.FLOOR - 1e-9 || !unit || q.ny <= 0) bad++;
+        // El único sitio donde el suelo puede bajar del plano de la bandeja es el
+        // embudo de la boca, y en todo su entorno la altura está DICTADA: se
+        // compara contra la fórmula del cono, no contra una tolerancia.
+        const fr = Math.hypot(x - d[0], z - d[1]);
+        const funnel = fr < S.MOUTH_R ? -S.FUNNEL_D
+          : fr < S.FUNNEL_R ? -S.FUNNEL_D + (fr - S.MOUTH_R) * (S.RIM_H + S.FUNNEL_D) / (S.FUNNEL_R - S.MOUTH_R)
+            : fr < S.FUNNEL_R + S.RIM_W ? S.RIM_H * (1 - (fr - S.FUNNEL_R) / S.RIM_W) : 0;
+        if (!Number.isFinite(q.y) || q.y < S.FLOOR + Math.min(funnel, 0) - 1e-9 || !unit || q.ny <= 0) bad++;
         maxH = Math.max(maxH, q.y - S.FLOOR);
         maxSlope = Math.max(maxSlope, Math.hypot(q.nx, q.nz) / q.ny);
-        if (Math.hypot(x - d[0], z - d[1]) < S.MOUTH_R + .55 && q.y !== S.FLOOR) raised++;
+        if (fr < S.FUNNEL_R + S.RIM_W && Math.abs(q.y - (S.FLOOR + funnel)) > 1e-9) raised++;
       }
     }
     let ordered = !!d[2] || d[8] === d[10];
@@ -172,7 +183,8 @@ console.log("\n— geometría de las formas —");
     check(`forma ${shape}: perfil ascendente y primer tramo plano`, ordered);
     check(`forma ${shape}: superficie sana`, !bad,
       `${bad} muestras · alto ${maxH.toFixed(2)} · pendiente ${maxSlope.toFixed(2)}`);
-    check(`forma ${shape}: la boca cae sobre suelo plano`, !raised, `${raised} muestras elevadas`);
+    check(`forma ${shape}: la boca cae sobre suelo llano y su embudo es limpio`,
+      !raised, `${raised} muestras fuera del cono`);
     // La boca tiene que estar dentro de la bandeja y lejos del centro: al
     // relanzar un premio colado durante el asentado se le refleja por el origen.
     check(`forma ${shape}: boca dentro de la bandeja y descentrada`,
@@ -207,6 +219,50 @@ console.log("\n— conducto físico —");
   lip.p.y = lip.p.oy = S.FLOOR + S.FEET;
   S.step(lip.s);
   check("tocar el borde sin entrar no puntúa", lip.p.state === 0 && lip.s.score === 0);
+
+  // El embudo. Lo que aterriza dentro del cono acaba dentro de la boca aunque
+  // llegue sin velocidad; lo que cae en el caballón que lo rodea se escurre hacia
+  // fuera. Se prueban las cuatro direcciones porque el cono es radial y la bandeja
+  // no: un error de signo en el gradiente sólo se vería por un lado.
+  const drop = (r, ang, steps) => {
+    const t = isolated(0);
+    const x = t.s.mx + Math.cos(ang) * r, z = t.s.mz + Math.sin(ang) * r;
+    t.p.x = t.p.ox = x; t.p.z = t.p.oz = z;
+    t.p.y = t.p.oy = S.surface(t.s.shape, x, z).y + S.FEET;
+    let guard = 0;
+    while (t.p.state !== 2 && guard++ < steps) S.step(t.s);
+    return { toy: t.p, sim: t.s, steps: guard };
+  };
+  // La boca vive pegada a una esquina de la bandeja, así que sólo se prueban los
+  // lados en los que cabe la muestra: contra la pared el clamp lateral la
+  // devolvería al centro del agujero y el resultado no mediría el embudo.
+  const mouth = isolated(0).s;
+  const fits = (r, ang) => {
+    const x = mouth.mx + Math.cos(ang) * r, z = mouth.mz + Math.sin(ang) * r;
+    return Math.abs(x) <= S.X1 - .56 && Math.abs(z) <= S.Z1 - .56;
+  };
+  const out = S.FUNNEL_R + S.RIM_W;
+  let sides = 0, slid = 0, held = 0, repelled = 0, slowest = 0;
+  for (let q = 0; q < 4; q++) {
+    const a = q * Math.PI / 2;
+    if (!fits(out + .3, a)) continue;
+    sides++;
+    const r = drop(S.FUNNEL_R - .06, a, 900);
+    if (r.toy.state === 2) { slid++; slowest = Math.max(slowest, r.steps); }
+    if (drop(out + .3, a, 900).toy.state === 0) held++;
+    // En la falda exterior del caballón la pendiente empuja al revés: el premio
+    // se aleja de la boca, o como mucho se queda donde cayó. Lo que no puede
+    // hacer NUNCA es acercarse, que es como se vaciaba solo el montón.
+    const r0 = S.FUNNEL_R + S.RIM_W * .5, skirt = drop(r0, a, 900).toy;
+    if (skirt.state === 0 && Math.hypot(skirt.x - mouth.mx, skirt.z - mouth.mz) >= r0 - 1e-9) repelled++;
+  }
+  check("lo que cae en el embudo termina entrando", sides >= 2 && slid === sides, `${slid}/${sides} lados`);
+  check("fuera del caballón el suelo sigue siendo llano", sides >= 2 && held === sides, `${held}/${sides} lados`);
+  check("el caballón escupe hacia fuera lo que se le apoya", sides >= 2 && repelled === sides, `${repelled}/${sides} lados`);
+  // Que acabe entrando no basta: si tardase media partida el jugador vería el
+  // premio encallado en el borde, que es justo lo que el embudo viene a quitar.
+  check("el embudo traga en menos de tres segundos",
+    slowest > 0 && slowest < 3 / S.H, `${(slowest * S.H).toFixed(2)} s`);
 
   const blocked = isolated(1), obstacle = blocked.s.toys[1];
   blocked.p.x = blocked.p.ox = blocked.s.mx + .35;
@@ -417,7 +473,10 @@ console.log("\n— ¿hay decisión? codicioso contra conservador —");
       const r = play(3000 + i * 53, strat);
       total += r.s.score; prizes += r.log.wins;
       if (r.s.score === 0) zeros++;
-      if (r.s.score >= 5000) big++;
+      // Jackpot es "ha caído un King", igual que el cartel del final de partida.
+      // Un umbral de puntuación ya no lo distingue: 2.000 salen también de dos
+      // Unicorns, y entonces la conservadora firmaría "jackpots" sin coronas.
+      if (r.log.byRarity[3]) big++;
     }
     return { avg: total / 60, zeros, big, prizes: prizes / 60 };
   };
@@ -492,9 +551,15 @@ console.log("\n— tolerancia de puntería por rareza —");
     console.log(`       ruido ±${(spread / 2).toFixed(2)} — ` +
       out.map(o => `r${o.rarity} ${o.pct.toFixed(0)}%`).join(" · "));
     if (spread === .44) {
-      // El King era inalcanzable en la práctica: 5 % con puntería humana. Tras
-      // duplicar la tolerancia el suelo es del 10 %, y sigue siendo el más duro.
-      check("el king se agarra con puntería humana", out[3].pct >= 10, `${out[3].pct.toFixed(0)}%`);
+      // El King era inalcanzable en la práctica: 10 % con puntería humana, porque
+      // su umbral caía en la parte vertical de la curva de grip. Lo que separa
+      // "difícil" de "lotería" es del orden de un cuarto de los intentos: con cinco
+      // tiradas por partida, el jugador que va a por él lo consigue en unas 2 de
+      // cada 3 partidas. El suelo se pone en 20 y no en 25 porque el relieve se
+      // sigue tocando y mueve esta cifra varios puntos; lo que no puede volver a
+      // pasar es caer al 10 del acantilado. El techo lo vigila la comparación
+      // codicioso/conservador: por encima del 50 % el jackpot deja de serlo.
+      check("el king se agarra con puntería humana", out[3].pct >= 20, `${out[3].pct.toFixed(0)}%`);
       check("el king sigue siendo el más difícil", out.every(o => o.rarity === 3 || o.pct > out[3].pct));
     }
   }

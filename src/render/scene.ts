@@ -1,5 +1,5 @@
 import { CEILING, type Toy } from "../game/sim";
-import { FLOOR, MOUTH_R, SHAPES } from "../game/shapes";
+import { FLOOR, MOUTH_R, FUNNEL_R, FUNNEL_D, RIM_H, RIM_W, SHAPES } from "../game/shapes";
 import { W } from "./w";
 
 const PINK = "#b94d86", DARK = "#302849", WHITE = "#fff8ee", GOLD = "#ffd05d";
@@ -65,34 +65,56 @@ export function createScene(canvas: HTMLCanvasElement, toys: Toy[], shape: numbe
 
   // Bandeja de premios. Cuatro losas disjuntas rodean un hueco interior real;
   // ninguna cubre ni se solapa con otra. El pozo queda bastante por debajo.
-  // El pozo y su labio viven en un grupo propio porque la boca cambia de sitio
-  // con la forma: se trasladan enteros y sólo las losas hay que redimensionarlas.
-  const GAP = MOUTH_R + .18, HOLE = GAP * 2, lip = .1, RIM = .14;
+  // El pozo, el embudo y su caballón viven en un grupo propio porque la boca
+  // cambia de sitio con la forma: se trasladan enteros y sólo las losas hay que
+  // redimensionarlas. Lo que abren las losas ya no es la boca sino el pie del
+  // caballón: dentro de ese cuadrado el suelo lo pone el embudo entero.
+  const GAP = MOUTH_R + .18, OUT = FUNNEL_R + RIM_W;
   const SX0 = TX0 - WALL, SX1 = TX1 + WALL, SZ0 = TZ0 - WALL, SZ1 = TZ1 + WALL;
   const slab = (n: string, x0: number, x1: number, z0: number, z1: number) =>
     cube(n, "machine", (x0 + x1) / 2, FLOOR - .08, (z0 + z1) / 2,
       x1 - x0, .16, z1 - z0, "#c02a69");
 
   W.group({ n: "hole", g: "machine" });
-  const wellY = FLOOR - .42;
-  cube("", "hole", 0, FLOOR - .82, 0, HOLE, .08, HOLE, "#160714");
-  cube("", "hole", -GAP + .06, wellY, 0, .12, .84, HOLE, "#32102d");
-  cube("", "hole", GAP - .06, wellY, 0, .12, .84, HOLE, "#32102d");
-  cube("", "hole", 0, wellY, -GAP + .06, HOLE, .84, .12, "#260c24");
-  cube("", "hole", 0, wellY, GAP - .06, HOLE, .84, .12, "#44143b");
-  // Un labio bajo enmarca la abertura sin ocultarla desde la cámara inicial.
-  const rimY = FLOOR + RIM / 2;
-  cube("", "hole", -GAP - lip / 2, rimY, 0, lip, RIM, HOLE + lip * 2, GOLD);
-  cube("", "hole", GAP + lip / 2, rimY, 0, lip, RIM, HOLE + lip * 2, GOLD);
-  cube("", "hole", 0, rimY, -GAP - lip / 2, HOLE, RIM, lip, GOLD);
-  cube("", "hole", 0, rimY, GAP + lip / 2, HOLE, RIM, lip, GOLD);
+  cube("", "hole", 0, FLOOR - .82, 0, GAP * 2, .08, GAP * 2, "#160714");
+
+  // Embudo y caballón (ver shapes.ts). La física resuelve un cono liso; aquí se
+  // escalona en marcos concéntricos, igual que las terrazas radiales del relieve.
+  // Cuatro cajas por nivel y las cuatro a la MISMA altura: es lo que hace que las
+  // esquinas casen. Con una rampa inclinada por lado no casan —la del eje X y la
+  // del eje Z llegan a la esquina a cotas distintas y se abre un escalón de la
+  // altura entera del cono—, y no hay forma de ingletar cajas.
+  //
+  // Cada marco se dibuja a la cota más ALTA de su tramo, la convención del
+  // relieve: antes un premio medio hundido que un premio apoyado en el aire.
+  const frame = (r0: number, r1: number, top: number, b: string) => {
+    const y = FLOOR + top - .6, w = r1 - r0, m = (r0 + r1) / 2;
+    cube("", "hole", m, y, 0, w, 1.2, r1 * 2, b);
+    cube("", "hole", -m, y, 0, w, 1.2, r1 * 2, b);
+    cube("", "hole", 0, y, m, r0 * 2, 1.2, w, b);
+    cube("", "hole", 0, y, -m, r0 * 2, 1.2, w, b);
+  };
+  // La cota del cono a un radio, la MISMA fórmula que la física.
+  const cone = (r: number) =>
+    -FUNNEL_D + (r - MOUTH_R) * (RIM_H + FUNNEL_D) / (FUNNEL_R - MOUTH_R);
+  const step = (FUNNEL_R - GAP) / 3;
+  frame(GAP, GAP + step, cone(GAP + step), "#7c2c55");
+  frame(GAP + step, FUNNEL_R - step, cone(FUNNEL_R - step), "#a33367");
+  // El labio dorado se queda con la cresta entera: el último tramo del cono y el
+  // primero del caballón están a la misma altura menos un dedo, y partirlo en dos
+  // marcos sólo añadiría cuatro cajas para que no se note.
+  frame(FUNNEL_R - step, FUNNEL_R + RIM_W / 2, RIM_H, GOLD);
+  frame(FUNNEL_R + RIM_W / 2, OUT, RIM_H / 2, "#c02a69");
 
   const layoutHole = (mx: number, mz: number) => {
-    const z0 = mz - GAP, z1 = mz + GAP;
+    // La boca vive pegada al borde de la bandeja y el caballón es ancho, así que
+    // el hueco se recorta contra el contorno: sin esto una losa saldría con lado
+    // negativo, que W dibuja del revés. Lo que quede fuera lo tapa el muro.
+    const z0 = Math.max(mz - OUT, SZ0), z1 = Math.min(mz + OUT, SZ1);
     slab("f0", SX0, SX1, SZ0, z0);
     slab("f1", SX0, SX1, z1, SZ1);
-    slab("f2", SX0, mx - GAP, z0, z1);
-    slab("f3", mx + GAP, SX1, z0, z1);
+    slab("f2", SX0, Math.max(mx - OUT, SX0), z0, z1);
+    slab("f3", Math.min(mx + OUT, SX1), SX1, z0, z1);
     W.move({ n: "hole", x: mx, z: mz });
   };
 
@@ -172,7 +194,7 @@ export function createScene(canvas: HTMLCanvasElement, toys: Toy[], shape: numbe
   cube("", "cart", 0, 3.68, 0, 1.25, .58, 1, "#a94e83");
   cube("", "cart", 0, 3.98, 0, .86, .18, .76, "#d177a1");
   cube("", "cart", 0, 3.68, .52, .34, .34, .04, GOLD, { rz: 45 });
-  W.group({ n: "claw", x: 0, y: 2.3, z: 0 });
+  W.group({ n: "claw", x: 0, y: 2.9, z: 0 });
   cube("", "claw", 0, .04, 0, .78, .7, .74, "#6e6072");
   cube("", "claw", 0, .04, .37, .28, .28, .04, PINK, { rz: 45 });
   W.sphere({ n: "", g: "claw", y: -.3, w: .68, h: .46, d: .68, b: "#b8adb6" });

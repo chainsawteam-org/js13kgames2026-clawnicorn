@@ -2,8 +2,8 @@
 // Todo avanza en pasos fijos de H segundos, así que el resultado no depende
 // del refresco del monitor. Ver docs/GAME_DESIGN.md §5 y §6.
 
-import { FLOOR, X0, X1, Z0, Z1, MOUTH_R, SHAPE_COUNT, SHAPES, surface } from "./shapes";
-export { FLOOR, X0, X1, Z0, Z1, MOUTH_R, SHAPE_COUNT, SHAPES, surface } from "./shapes";
+import { FLOOR, X0, X1, Z0, Z1, MOUTH_R, FUNNEL_R, FUNNEL_D, RIM_H, RIM_W, SHAPE_COUNT, SHAPES, surface } from "./shapes";
+export { FLOOR, X0, X1, Z0, Z1, MOUTH_R, FUNNEL_R, FUNNEL_D, RIM_H, RIM_W, SHAPE_COUNT, SHAPES, surface } from "./shapes";
 
 export const H = 1 / 120;
 export const CEILING = 4.1;
@@ -22,34 +22,70 @@ export const EV_LOWER = 0, EV_CLOSE = 1, EV_GRAB = 2, EV_EMPTY = 3,
 // < Unicorn King (2). El índice de rareza ordena a la vez cuántos hay, lo difícil
 // que es agarrarlo y lo que paga, así que la decisión del jugador es siempre la
 // misma pregunta: ¿cuánto riesgo por cuánto premio?
-export const POINTS = [250, 500, 1000, 5000];
+export const POINTS = [250, 500, 1000, 2000];
 const DIFF = [.15, .25, .40, .70];
 // Agarre mínimo por rareza. Tabla explícita en vez de fórmula: es el mando de
 // balance más sensible del juego y conviene poder moverlo de uno en uno.
-// El Unicorn King exige puntería perfecta Y que esté despejado; enterrarlo
-// lo protege.
-// Calibrada contra tools/simtest.mjs: la garra al bajar ya desplaza al objetivo
-// unas 0,35 u, así que un agarre "perfecto" ronda 0,60 y no 1,0.
 //
-// Tabla duplicada respecto a la anterior [.32, .44, .56, .865]. El umbral no es la
-// probabilidad: lo que el jugador percibe como "posibilidades de agarre" es el
-// RADIO de puntería que perdona, y como el error de apuntado es un disco, la
-// probabilidad va con su área. Doblarla significa multiplicar ese radio por √2,
-// que es de donde salen estos números. El King era el caso sangrante —.865 dejaba
-// una tolerancia de 0,05 u, inalcanzable con un mando— y el resto sube en la misma
-// proporción. La rareza 0 topa contra GRAB_R: más allá la garra ya no llega.
-const REQUIRED = [.24, .33, .44, .85];
+// ATENCIÓN al calibrar: `grip` NO se reparte por rareza. La fórmula es la misma
+// para los cuatro y su distribución también —medida sobre 300 tiradas por rareza,
+// idéntica dentro del ruido—, así que TODA la dificultad vive en esta tabla y en
+// una franja estrechísima. Percentil 50 del grip alcanzable:
+//
+//   puntería perfecta   0,90     ruido ±0,11   0,82     ruido ±0,22   0,77
+//
+// De ahí que un umbral por encima de ~0,80 no produzca "difícil" sino un
+// acantilado: cae en la parte vertical de la curva y la tirada pasa a depender de
+// acertar al centímetro, no de jugar bien. El King estuvo en 0,865 y luego en
+// 0,85, y en los dos casos era inaccesible con un mando: 10 % de agarres con ruido
+// ±0,22 frente al 96-99 % del resto — de ahí el "nunca coge al King".
+//
+// 0,80 es el punto de equilibrio, y está elegido con la curva completa delante:
+//
+//   umbral   ±0,22   ±0,55   partidas con jackpot (estrategia codiciosa)
+//   0,85      10 %     3 %     20/60   ← roto: lotería, no dificultad
+//   0,80      27 %    12 %     45/60   ← elegido
+//   0,78      37 %    13 %     56/60
+//   0,75      58 %    23 %     58/60   ← el jackpot deja de ser jackpot
+//
+// Por debajo de 0,80 el premio del King se convierte en un trámite: ir siempre a
+// por el King pasa a ser la jugada correcta el 93-97 % de las partidas y se lleva
+// por delante el riesgo/recompensa sobre el que está construido el juego.
+//
+// Lo que protege al King ya no es la precisión imposible sino estar ENTERRADO,
+// que era la intención original: con crowd ≥ 4 la exposición se anula y el grip
+// se queda en ~0,72, por debajo del umbral incluso apuntando perfecto.
+//
+// (La nota anterior decía que un agarre perfecto "ronda 0,60" porque la garra
+// desplaza al objetivo 0,35 u al bajar. Está medido que no: `beginDrop` para el
+// carro SOBRE el montón, el agarre se evalúa antes de que los dedos se muevan y
+// el centrado real llega a 0,999. Ese 0,60 fantasma es el origen del acantilado.)
+const REQUIRED = [.24, .33, .44, .80];
 
 // El peluche son dos esferas: torso en el origen local y cabeza desplazada según yaw.
 const R_BODY = .55, R_HEAD = .37, HEAD_X = .62, HEAD_Y = .5;
+// Radio del tapón que cierra la boca durante el asentado de `reset`: el cuerpo
+// del premio más lejos de la abertura, y nunca menos que el pie exterior del
+// caballón. El montón arranca apoyado en suelo llano, no encaramado al embudo.
+const PLUG_R = Math.max(MOUTH_R + R_BODY, FUNNEL_R + RIM_W);
 export const FEET = .75;                         // del centro del torso a las pezuñas
 
 const GRAV = 15, DRAG = .9965, YSQUASH = 1.2, TORQUE = 22, SPIN_MAX = 4;
 const MAX_PUSH = .18;                            // tope duro: ninguna corrección puede catapultar nada
 const SLEEP_EPS = 2e-7, SLEEP_FRAMES = 12;
 
-// Claw
-const CLAW_TOP = 2.3, CLAW_BOTTOM = -1.15;
+// Claw. CLAW_TOP no es una altura estética: es la que fija el BARRIDO, porque el
+// premio cobrado cuelga HOLD_Y por debajo del carro y en P_CARRY cruza toda la
+// bandeja a esta altura. Con 2,9 su torso queda a 1,65 y, contra un peluche
+// subido a un escalón de dos pisos (torso 0,725 · cabeza 1,225), el solape es
+//
+//   cabeza  +0,41   lo engancha y, al ir descentrado, lo hace girar y volcar
+//   torso   −0,01   no lo arrolla: pasa rozando por encima
+//   un piso −1,51   ni lo toca; lo alto y lo altísimo se juegan distinto
+//
+// Y da alcance: bajar hasta un premio de dos pisos pide dropY 2,03 y el tope es
+// CLAW_TOP−0,6 = 2,3. Mover esta constante recalibra las tres cosas a la vez.
+const CLAW_TOP = 2.9, CLAW_BOTTOM = -1.15;
 export const AIM_X = 3.2, AIM_Z = 1.6;          // el carro se mueve sobre el montón
 const GRAB_R = 1.05, HOLD_Y = -1.25;             // el premio agarrado cuelga a HOLD_Y del carro
 
@@ -138,23 +174,52 @@ export function reset(s: Sim, gameSeed: number) {
   s.toys = LAYOUT.map((l, i) => {
     const slot = slots[i]!;
     const x = slot[0]! + (rnd() - .5) * .35, lift = rnd(), z = slot[1]! + (rnd() - .5) * .3;
-    return mkToy(x, surface(s.shape, x, z).y + FEET + .5 + lift * 2.4,
+    // La altura de suelta es relativa al relieve, pero sobre un escalón de dos
+    // pisos se sale por el techo: sin el tope, la caída empieza dentro del muro
+    // y el primer paso ya la corrige de golpe.
+    return mkToy(x, Math.min(surface(s.shape, x, z).y + FEET + .5 + lift * 2.4,
+      CEILING - HEAD_Y - R_HEAD),
       z, rnd() * 360, l[2]);
   });
 
-  // Asentado inicial en dos tiempos. Primero con la boca tapada, para que el
+  // Asentado inicial en tres tiempos. Primero con la boca tapada, para que el
   // montón no se cuele por el conducto mientras cae. Después con ella abierta,
   // porque si no el montón se queda comprimido contra un cilindro invisible y
   // al empezar la partida se derrumba dentro regalando premios. Al que se cuela
   // en esa segunda fase se le vuelve a lanzar desde el lado opuesto.
+  //
+  // En esa segunda fase se relanza también al que se queda DENTRO del anillo,
+  // no sólo al que ya ha caído, y eso no es celo: con el relieve medido en pisos
+  // toda la cascada desemboca en el llano donde vive la boca, así que ahí se
+  // acumula un apretón que antes no existía. El montón nunca llega al reposo
+  // absoluto —tiembla indefinidamente—, de modo que un premio dormido a un palmo
+  // del agujero acaba entrando solo aunque nadie juegue: medido, cuatro de las
+  // seis formas regalaban entre 1.000 y 10.000 puntos por esperar. Despejar el
+  // anillo lo lleva a cero y además cumple lo que el diseño ya decía, que el
+  // rincón del conducto empieza libre. El radio va atado a PLUG_R y no es un
+  // número suelto: por dentro del tapón no queda nadie a quien relanzar, así que
+  // un anillo más estrecho que él no despeja nada. El margen de 0,15 es donde se
+  // cierra la fuga; ensancharlo más no mejora y sólo vacía la esquina.
+  //
+  // El tercer tiempo es sólo relajación, para que el último relanzado no se
+  // quede a medio caer, y sigue relanzando al que se cuela: dejar el agujero sin
+  // vigilancia ni siquiera 300 pasos basta para empezar la partida con un premio
+  // sentado dentro. Lo que ya no hace es despejar el anillo, que a esas alturas
+  // sólo serviría para rebotar indefinidamente al mismo peluche.
   for (let i = 0; i < 260; i++) { integrate(s); constrain(s, false, true); }
-  for (let i = 0; i < 240; i++) {
+  const relaunch = (p: Toy) => {
+    p.state = 0; p.sleep = 0;
+    p.x = p.ox = -p.x; p.z = p.oz = -p.z;
+    p.y = p.oy = surface(s.shape, p.x, p.z).y + FEET + 1.5;
+  };
+  for (let i = 0; i < 500; i++) {
     integrate(s); constrain(s, false);
-    for (const p of s.toys) if (p.state) {
-      p.state = 0; p.sleep = 0;
-      p.x = p.ox = -p.x; p.z = p.oz = -p.z;
-      p.y = p.oy = surface(s.shape, p.x, p.z).y + FEET + 1.5;
-    }
+    for (const p of s.toys)
+      if (p.state || Math.hypot(p.x - s.mx, p.z - s.mz) < PLUG_R + .15) relaunch(p);
+  }
+  for (let i = 0; i < 100; i++) {
+    integrate(s); constrain(s, false);
+    for (const p of s.toys) if (p.state) relaunch(p);
   }
   s.score = 0; s.events.length = 0;
   for (const p of s.toys) { p.sleep = SLEEP_FRAMES; }
@@ -340,11 +405,14 @@ function constrain(s: Sim, clawOn: boolean, loading = false) {
       // por un derrumbe o lo empuja otro. En cuanto su centro entra en la abertura
       // deja de apoyarse en el suelo y cae por el conducto.
       const dx = p.x - s.mx, dz = p.z - s.mz, md = Math.hypot(dx, dz) || 1e-4;
-      if (loading && md < MOUTH_R + R_BODY) {
+      if (loading && md < PLUG_R) {
         // Sólo durante el asentado la boca se tapa, para que la partida no
         // empiece con premios ya cobrados. En juego el agujero está abierto: un
         // derrumbe o un empujón pueden colar un premio, y eso es deseable.
-        const q = MOUTH_R + R_BODY - md;
+        // El tapón cubre el EMBUDO entero, no sólo la boca: dejar a alguien
+        // asentado en la pendiente equivale a regalarle el premio en cuanto
+        // arranca la partida.
+        const q = PLUG_R - md;
         push(p, dx / md * q, 0, dz / md * q, .6);
         supportSolve(s, p);
       } else if (md < MOUTH_R) {

@@ -73,10 +73,10 @@ tecla de mute (`M`).
 
 | Rareza | Cantidad | Puntos | `REQUIRED` | Entrega con puntería perfecta |
 |---|---:|---:|---:|---:|
-| Star | 6 | 250 | 0,24 | 95 % |
-| Rainbow Item | 3 | 500 | 0,33 | 97 % |
-| Unicorn | 2 | 1.000 | 0,44 | 95 % |
-| Unicorn King | 2 | 5.000 | 0,85 | 85 % |
+| Star | 6 | 250 | 0,24 | 97 % |
+| Rainbow Item | 3 | 500 | 0,33 | 93 % |
+| Unicorn | 2 | 1.000 | 0,44 | 90 % |
+| Unicorn King | 2 | 2.000 | 0,80 | 83 % |
 
 El índice de rareza ordena **a la vez** cuántos hay en el montón, lo difícil que es
 agarrarlo y lo que paga, así que la decisión del jugador es siempre la misma
@@ -92,36 +92,70 @@ puede producirse por empuje; cualquier cambio exige volver a medir el conjunto.
 **El tiro perfecto no es la métrica que importa.** Con puntería exacta casi todo
 entra, incluso el King; lo que el jugador percibe como "posibilidades de agarre"
 es cuánta puntería perdona el sistema. Medido con ruido de apuntado (`simtest`,
-§ *tolerancia de puntería*), contra la tabla anterior `[0,32 0,44 0,56 0,865]`:
+§ *tolerancia de puntería*), contra la tabla original `[0,32 0,44 0,56 0,865]`:
 
 | Ruido de apuntado | Star | Rainbow | Unicorn | King |
 |---|---:|---:|---:|---:|
-| ±0,22 antes → ahora | 97 → 99 % | 98 → 99 % | 94 → 96 % | **5 → 11 %** |
-| ±0,55 antes → ahora | 92 → 94 % | 82 → 90 % | 62 → 79 % | **1 → 3 %** |
+| ±0,22 antes → ahora | 97 → 91 % | 98 → 94 % | 94 → 91 % | **5 → 23 %** |
+| ±0,55 antes → ahora | 92 → 83 % | 82 → 82 % | 62 → 79 % | **1 → 8 %** |
 
-La tabla actual es la anterior **con la tolerancia duplicada**. El umbral no es
-una probabilidad: como el error de apuntado es un disco, la probabilidad va con el
-*área* del radio que se perdona, y doblarla significa multiplicar ese radio por √2.
-El King era el caso sangrante —0,865 dejaba una tolerancia de 0,05 u, inalcanzable
-con un mando— y ahí el efecto se ve entero. Las rarezas bajas suben poco porque ya
-estaban cerca del techo: el radio no puede pasar de `GRAB_R`, más allá la garra
-sencillamente no llega.
+### `grip` no distingue rarezas — toda la dificultad vive en esta tabla
+
+El dato que hay que tener delante antes de tocar nada, medido sobre 300 tiradas
+por rareza: **la distribución de `grip` es la misma para las cuatro**, idéntica
+dentro del ruido. Percentil 50 del `grip` alcanzable:
+
+| Puntería | p50 de `grip` |
+|---|---:|
+| perfecta | 0,90 |
+| ruido ±0,11 | 0,82 |
+| ruido ±0,22 | 0,77 |
+
+De ahí que un umbral por encima de ~0,80 no produzca "difícil" sino un
+**acantilado**: cae en la parte vertical de la curva, y la tirada pasa a depender
+de acertar al centímetro en lugar de jugar bien. El King estuvo en 0,865 y luego
+en 0,85 y en los dos casos era inaccesible con un mando —10 % de agarres con ruido
+±0,22 frente al 91-94 % del resto—, que es exactamente el síntoma de "la garra
+nunca coge al King".
+
+El 0,80 actual está elegido con la curva completa delante:
+
+| Umbral | ±0,22 | ±0,55 | Partidas con jackpot (codiciosa) | |
+|---:|---:|---:|---:|---|
+| 0,85 | 10 % | 3 % | 20/60 | roto: lotería, no dificultad |
+| **0,80** | **27 %** | **12 %** | **45/60** | elegido |
+| 0,78 | 37 % | 13 % | 56/60 | |
+| 0,75 | 58 % | 23 % | 58/60 | el jackpot deja de ser jackpot |
+
+Por debajo de 0,80 el premio del King se convierte en un trámite: ir siempre a por
+el King pasa a ser la jugada correcta en el 93-97 % de las partidas y se lleva por
+delante el riesgo/recompensa sobre el que está construido el juego.
+
+Lo que protege al King ya no es una precisión imposible sino **estar enterrado**,
+que era la intención original: con `crowd ≥ 4` la exposición se anula y el `grip`
+se queda en ~0,72, por debajo del umbral incluso apuntando perfecto.
+
+> Nota histórica: la calibración original partía de que un agarre perfecto "ronda
+> 0,60" porque la garra desplaza al objetivo 0,35 u al bajar. Está medido que no:
+> `beginDrop` para el carro **sobre** el montón, el agarre se evalúa antes de que
+> los dedos se muevan y el centrado real llega a 0,999. Ese 0,60 fantasma es el
+> origen del acantilado del King.
 
 **La decisión existe y está verificada.** Contra el mismo conjunto de semillas:
 
 | Estrategia | Media | Premios | Partidas a cero | Con jackpot |
 |---|---:|---:|---:|---:|
-| Codiciosa (siempre el King) | 2.308 pts | 1,27 | 23/60 | 20/60 |
-| Conservadora (el más despejado) | 2.571 pts | 4,37 | 3/60 | 9/60 |
+| Codiciosa (siempre el King) | 6.829 pts | 3,07 | 5/60 | 45/60 |
+| Conservadora (el más despejado) | 3.821 pts | 5,15 | 0/60 | 20/60 |
 
 La boca abierta recompensa las jugadas emergentes: perseguir al King también
-puede empujarlo a él o a sus vecinos al conducto. Con la escala de puntos actual
-las dos rutas valen casi lo mismo de media (1,11×) y lo que las separa es la
-**varianza**: la codiciosa firma el jackpot en 20 de 60 partidas pero se va a cero
-en 23, y la conservadora casi nunca falla pero rara vez despega. Eso es mejor
-trade-off que el anterior, donde el King a 50× el premio común hacía que ir a por
-él fuese además lo más rentable. `simtest` falla si la brecha supera 3,5× o
-cualquiera deja de ser jugable.
+puede empujarlo a él o a sus vecinos al conducto. La codiciosa paga más de media
+(1,79×) y es la que firma el jackpot —45 de 60 partidas—, pero es también la única
+que se va a cero. La conservadora entrega casi el doble de premios y no falla
+nunca. `simtest` falla si la brecha supera 3,5× o cualquiera deja de ser jugable.
+
+Ese 1,79× es el termómetro del umbral del King: si baja de 0,80 se dispara, porque
+perseguir al King deja de ser una apuesta y pasa a ser la jugada obvia.
 
 La primera tirada de una partida nunca sufre resbalón. Es una ayuda invisible que
 enseña el bucle y evita una primera impresión injusta.
@@ -268,6 +302,24 @@ contabilizar y mostrar correctamente varias caídas ocurridas en el mismo frame.
 El hueco visual del suelo se deriva de las mismas constantes que la boca lógica,
 así que no pueden desincronizarse. El suelo de la bandeja son dos losas, no una,
 y lo que dejan entre ellas *es* el conducto.
+
+**El embudo.** La boca no está abierta en un suelo llano: es el fondo de un cono
+rodeado de un caballón, el perfil de una máquina de verdad. El cono perdona el
+borde —lo que aterriza cerca resbala dentro en vez de quedarse encallado a dos
+dedos del premio— y el caballón es lo que permite tenerlo, porque el solver no
+tiene rozamiento estático: sobre cualquier pendiente un premio parado termina
+deslizándose, así que un embudo a ras de suelo convierte la boca en un imán y el
+montón se vacía solo mientras el jugador mira (medido: hasta 10.000 puntos en
+veinte segundos sin tocar el mando). Con el caballón el montón se apoya en su
+falda exterior, que empuja hacia fuera, y al cono sólo llega lo que viene por el
+aire: lo soltado, lo resbalado y lo que se derrumba desde un escalón.
+
+Todo esto vive en la geometría compartida (`surface`), no en un empujón especial
+del solver: el embudo es relieve como cualquier otro, de modo que la altura de
+parada de la garra, el objetivo del enganchado y la exposición siguen siendo
+coherentes sin código añadido. El render lo escalona en marcos concéntricos —la
+misma solución que las terrazas radiales— porque cuatro rampas inclinadas no
+casan en las esquinas.
 
 ### 5.8 Determinismo
 
@@ -470,6 +522,9 @@ orden de §15.4.
   nadie sale de la cuba, un jugador sensato rara vez se va en blanco;
 - **asentado inicial**: nadie atraviesa el suelo, nadie cae solo al conducto y el
   montón queda dormido;
+- **embudo**: lo que se posa en el cono acaba dentro en menos de tres segundos, lo
+  que se posa en el caballón no se acerca a la boca y el llano de al lado sigue
+  siendo llano — los tres por cada lado que la bandeja deja probar;
 - **balance**: la escalera de dificultad por rareza y que ninguna estrategia
   domine a la otra.
 
