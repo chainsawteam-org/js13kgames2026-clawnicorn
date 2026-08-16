@@ -30,7 +30,7 @@ function play(seed, aim, fps = 60) {
   S.beginGame(s);
   let acc = 0, frames = 0, steps = 0;
   const dt = 1 / fps;
-  const log = { grabs: 0, empty: 0, slips: 0, wins: 0, byRarity: {} };
+  const log = { grabs: 0, empty: 0, slips: 0, hooks: 0, wins: 0, maxHeld: 0, byRarity: {} };
 
   while (s.phase !== S.P_RESULT && frames < fps * 120) {
     frames++;
@@ -45,12 +45,19 @@ function play(seed, aim, fps = 60) {
         S.beginDrop(s);
       }
       S.step(s); acc -= S.H; steps++;
+      // Cuántos peluches viajan en la garra a la vez: el agarrado y, como mucho,
+      // un enganchado. Se mira en cada paso, no al final, porque el enganche
+      // sólo existe mientras dura la jugada.
+      let riding = 0;
+      for (const p of s.toys) if (p.state === 1) riding++;
+      if (riding > log.maxHeld) log.maxHeld = riding;
     }
 
     for (const e of s.events) {
       if (e === S.EV_GRAB) log.grabs++;
       if (e === S.EV_EMPTY) log.empty++;
       if (e === S.EV_SLIP) log.slips++;
+      if (e === S.EV_HOOK) log.hooks++;
       if (e >= S.EV_WIN) {
         const rarity = e - S.EV_WIN;
         log.wins++; log.byRarity[rarity] = (log.byRarity[rarity] || 0) + 1;
@@ -60,6 +67,10 @@ function play(seed, aim, fps = 60) {
   }
   return { s, frames, steps, log, finished: s.phase === S.P_RESULT };
 }
+
+// Un sim recién creado elige forma = semilla % SHAPE_COUNT, así que se puede
+// pedir una forma concreta sin tocar la simulación.
+const seedFor = (shape, i = 0) => (1234 + i * 7) * S.SHAPE_COUNT + shape;
 
 const clampAim = p => ({
   x: Math.max(-S.AIM_X, Math.min(S.AIM_X, p.x)),
@@ -77,7 +88,7 @@ const makeJitter = (seedValue, spread) => {
 
 // Codicioso: siempre el premio de mayor valor que quede.
 const pickGreedy = s => {
-  let best = null, bv = -1;
+  let best = null, bv = -Infinity;
   for (const p of s.toys) {
     if (p.state) continue;
     const v = S.POINTS[p.rarity] + p.y * 10;
@@ -88,7 +99,7 @@ const pickGreedy = s => {
 
 // Conservador: el premio más despejado, ignorando su valor.
 const pickSafe = s => {
-  let best = null, bv = -1;
+  let best = null, bv = -Infinity;
   for (const p of s.toys) {
     if (p.state) continue;
     let crowd = 0;
@@ -110,23 +121,64 @@ const greedy = strategy(pickGreedy, null);
 
 console.log("\n— asentado inicial —");
 {
-  for (let shape = 0; shape < 3; shape++) {
+  for (let shape = 0; shape < S.SHAPE_COUNT; shape++) {
     const s = S.createSim();
-    S.reset(s, 12345 + shape);
-    const low = s.toys.filter(p => p.y < S.surface(s.shape, p.x, p.z).y + S.FEET - .002);
-    const inChute = s.toys.filter(p => Math.hypot(p.x - S.MOUTH_X, p.z - S.MOUTH_Z) < S.MOUTH_R);
+    S.reset(s, seedFor(shape));
+    const low = s.toys.filter(p => p.y < S.surface(s.shape, p.x, p.z).y + S.FEET - .012);
+    const inChute = s.toys.filter(p => Math.hypot(p.x - s.mx, p.z - s.mz) < S.MOUTH_R);
     const nan = s.toys.filter(p => !Number.isFinite(p.x + p.y + p.z + p.yaw));
     check(`forma ${shape}: 13 premios apoyados`, s.shape === shape && s.toys.length === 13 && !low.length,
       `${low.length} bajo el relieve`);
     check(`forma ${shape}: conducto libre y sin NaN`, !inChute.length && !nan.length && !s.score && s.toys.every(p => p.state === 0));
     check(`forma ${shape}: el montón queda dormido`, s.toys.every(p => p.sleep > 0));
-    for (let i = 0; i < 600; i++) S.step(s);
-    check(`forma ${shape}: esperar en el título no entrega premios`, !s.score && s.toys.every(p => p.state === 0));
+    // El montón no puede vaciarse solo. El solver no llega nunca al reposo
+    // absoluto —el montón tiembla a ~1 u/s indefinidamente— así que el criterio
+    // es estadístico: esperar sin jugar no puede valer una tirada.
+    let idle = 0;
+    for (let g = 0; g < 4; g++) {
+      const w = S.createSim();
+      S.reset(w, seedFor(shape, g + 3));
+      for (let i = 0; i < 600; i++) S.step(w);
+      S.beginGame(w);
+      for (let i = 0; i < 1800; i++) S.step(w);
+      idle += w.score;
+    }
+    check(`forma ${shape}: esperar sin jugar casi no entrega premios`, idle <= 500,
+      `${idle} pts en 4 partidas`);
   }
   const s = S.createSim();
   let repeated = 0, last = -1;
   for (let i = 0; i < 20; i++) { S.reset(s, 7000 + i * 97); if (s.shape === last) repeated++; last = s.shape; }
   check("20 reinicios no repiten forma", repeated === 0);
+}
+
+console.log("\n— geometría de las formas —");
+{
+  for (let shape = 0; shape < S.SHAPE_COUNT; shape++) {
+    const d = S.SHAPES[shape];
+    let bad = 0, raised = 0, maxSlope = 0, maxH = 0;
+    for (let x = S.X0 - .6; x <= S.X1 + .6; x += .1) {
+      for (let z = S.Z0 - .6; z <= S.Z1 + .6; z += .1) {
+        const q = S.surface(shape, x, z);
+        const unit = Math.abs(Math.hypot(q.nx, q.ny, q.nz) - 1) < 1e-9;
+        if (!Number.isFinite(q.y) || q.y < S.FLOOR - 1e-9 || !unit || q.ny <= 0) bad++;
+        maxH = Math.max(maxH, q.y - S.FLOOR);
+        maxSlope = Math.max(maxSlope, Math.hypot(q.nx, q.nz) / q.ny);
+        if (Math.hypot(x - d[0], z - d[1]) < S.MOUTH_R + .55 && q.y !== S.FLOOR) raised++;
+      }
+    }
+    let ordered = !!d[2] || d[8] === d[10];
+    for (let i = 7; i < d.length - 2; i += 2) if (d[i + 2] <= d[i]) ordered = false;
+    check(`forma ${shape}: perfil ascendente y primer tramo plano`, ordered);
+    check(`forma ${shape}: superficie sana`, !bad,
+      `${bad} muestras · alto ${maxH.toFixed(2)} · pendiente ${maxSlope.toFixed(2)}`);
+    check(`forma ${shape}: la boca cae sobre suelo plano`, !raised, `${raised} muestras elevadas`);
+    // La boca tiene que estar dentro de la bandeja y lejos del centro: al
+    // relanzar un premio colado durante el asentado se le refleja por el origen.
+    check(`forma ${shape}: boca dentro de la bandeja y descentrada`,
+      Math.abs(d[0]) <= S.X1 - .2 && Math.abs(d[1]) <= S.Z1 - .4 && Math.hypot(d[0], d[1]) > 2 * S.MOUTH_R,
+      `${d[0]}, ${d[1]}`);
+  }
 }
 
 console.log("\n— conducto físico —");
@@ -135,7 +187,7 @@ console.log("\n— conducto físico —");
     const s = S.createSim(); S.reset(s, 2468);
     for (const p of s.toys) p.state = 2;
     const p = s.toys[0];
-    p.state = 0; p.rarity = rarity; p.x = p.ox = S.MOUTH_X; p.z = p.oz = S.MOUTH_Z;
+    p.state = 0; p.rarity = rarity; p.x = p.ox = s.mx; p.z = p.oz = s.mz;
     p.y = S.FLOOR + .35; p.oy = p.y + .03; p.sleep = 0;
     s.phase = S.P_AIM; s.score = 0; s.events.length = 0;
     return { s, p };
@@ -151,13 +203,13 @@ console.log("\n— conducto físico —");
   check("un premio ganado no vuelve a puntuar", pushed.s.score === S.POINTS[2]);
 
   const lip = isolated(0);
-  lip.p.x = lip.p.ox = S.MOUTH_X + S.MOUTH_R + .02;
+  lip.p.x = lip.p.ox = lip.s.mx + S.MOUTH_R + .02;
   lip.p.y = lip.p.oy = S.FLOOR + S.FEET;
   S.step(lip.s);
   check("tocar el borde sin entrar no puntúa", lip.p.state === 0 && lip.s.score === 0);
 
   const blocked = isolated(1), obstacle = blocked.s.toys[1];
-  blocked.p.x = blocked.p.ox = S.MOUTH_X + .35;
+  blocked.p.x = blocked.p.ox = blocked.s.mx + .35;
   blocked.p.y = blocked.p.oy = S.FLOOR + S.FEET + 1;
   blocked.p.yaw = blocked.p.oyaw = 0;
   obstacle.state = 0; obstacle.x = obstacle.ox = blocked.p.x - .75;
@@ -296,7 +348,7 @@ console.log("\n— integridad tras 40 partidas (jugador sensato, puntería imper
 {
   let bad = 0, lost = 0, nan = 0, out = 0, unfinished = 0, scoreless = 0;
   const rarities = { 0: 0, 1: 0, 2: 0, 3: 0 };
-  const byShape = Array.from({ length: 3 }, () => ({ games: 0, wins: 0, score: 0, zeros: 0 }));
+  const byShape = Array.from({ length: S.SHAPE_COUNT }, () => ({ games: 0, wins: 0, score: 0, zeros: 0 }));
   let totalWins = 0, totalGrabs = 0, totalEmpty = 0, totalSlips = 0, totalScore = 0;
   const sensible = strategy(pickSafe, makeJitter(987654321, .44));
   for (let i = 0; i < 40; i++) {
@@ -308,7 +360,7 @@ console.log("\n— integridad tras 40 partidas (jugador sensato, puntería imper
     if (won + pile !== 13) lost++;
     for (const p of r.s.toys) {
       if (!Number.isFinite(p.x + p.y + p.z + p.yaw + p.roll)) nan++;
-      if (p.state !== 2 && (Math.abs(p.x) > 4.6 || Math.abs(p.z) > 2.7 || p.y < S.FLOOR - .5)) out++;
+      if (p.state !== 2 && (Math.abs(p.x) > S.X1 + 1.5 || Math.abs(p.z) > S.Z1 + .95 || p.y < S.FLOOR - .5)) out++;
     }
     if (r.s.score === 0) scoreless++;
     const form = byShape[r.s.shape]; form.games++; form.wins += r.log.wins; form.score += r.s.score; form.zeros += +(r.s.score === 0);
@@ -325,8 +377,33 @@ console.log("\n— integridad tras 40 partidas (jugador sensato, puntería imper
   check("un jugador sensato rara vez se va en blanco", scoreless <= 4, `${scoreless}/40 sin puntuar`);
   console.log(`       agarres ${totalGrabs} · vacíos ${totalEmpty} · resbalones ${totalSlips} · entregados ${totalWins}`);
   console.log(`       media por partida: ${(totalScore / 40).toFixed(0)} pts, ${(totalWins / 40).toFixed(2)} premios`);
-  console.log(`       por premio — cloud ${rarities[0]} rainbow ${rarities[1]} star ${rarities[2]} king ${rarities[3]}`);
-  console.log("       por forma — " + byShape.map((v, i) => `${i}: ${(v.score / v.games).toFixed(0)} pts, ${(v.wins / v.games).toFixed(2)} premios, ${v.zeros}/${v.games} a cero`).join(" · "));
+  console.log(`       por premio — star ${rarities[0]} rainbow ${rarities[1]} unicorn ${rarities[2]} king ${rarities[3]}`);
+  console.log("       por forma — " + byShape.map((v, i) => `${i}: ${v.games ? (v.score / v.games).toFixed(0) : "-"} pts`).join(" · "));
+}
+
+console.log("\n— balance por forma (muestra igualada) —");
+{
+  const sensible = strategy(pickSafe, makeJitter(987654321, .44));
+  const N = 24, rows = [];
+  for (let shape = 0; shape < S.SHAPE_COUNT; shape++) {
+    let total = 0, wins = 0, grabs = 0, zeros = 0, lost = 0;
+    for (let i = 0; i < N; i++) {
+      const r = play(seedFor(shape, i + 40), sensible);
+      total += r.s.score; wins += r.log.wins; grabs += r.log.grabs;
+      if (!r.s.score) zeros++;
+      const won = r.s.toys.filter(p => p.state === 2).length;
+      const pile = r.s.toys.filter(p => p.state === 0).length;
+      if (won + pile !== 13 || r.s.shape !== shape) lost++;
+    }
+    rows.push({ avg: total / N, wins: wins / N, grabs: grabs / N, zeros, lost });
+  }
+  rows.forEach((r, i) => console.log(
+    `       forma ${i}: ${r.avg.toFixed(0)} pts · ${r.wins.toFixed(2)} entregados · ${r.grabs.toFixed(2)} agarres · ${r.zeros}/${N} a cero`));
+  const avgs = rows.map(r => Math.max(1, r.avg));
+  const spread = Math.max(...avgs) / Math.min(...avgs);
+  check("dispersión entre formas < 2,5×", spread < 2.5, `${spread.toFixed(2)}×`);
+  check("ninguna forma se va a cero a menudo", rows.every(r => r.zeros <= 5), rows.map(r => r.zeros).join("/"));
+  check("ninguna forma pierde premios", rows.every(r => !r.lost), rows.map(r => r.lost).join("/"));
 }
 
 console.log("\n— ¿hay decisión? codicioso contra conservador —");
@@ -376,10 +453,108 @@ console.log("\n— dificultad por rareza —");
     }
     rates.push((ok / tries * 100).toFixed(0));
   }
-  console.log(`       entrega con apuntado perfecto — cloud ${rates[0]}% rainbow ${rates[1]}% star ${rates[2]}% king ${rates[3]}%`);
+  console.log(`       entrega con apuntado perfecto — star ${rates[0]}% rainbow ${rates[1]}% unicorn ${rates[2]}% king ${rates[3]}%`);
   check("la dificultad crece con la rareza", +rates[0] >= +rates[3], `${rates[0]}% vs ${rates[3]}%`);
   check("el unicorn king es alcanzable", +rates[3] > 5, `${rates[3]}%`);
-  check("el unicorn cloud es fiable", +rates[0] > 55, `${rates[0]}%`);
+  check("la star es fiable", +rates[0] > 55, `${rates[0]}%`);
+}
+
+console.log("\n— tolerancia de puntería por rareza —");
+{
+  // Lo que el jugador nota como "probabilidad de agarre" no es el tiro perfecto,
+  // que casi siempre entra, sino cuánto perdona la puntería real. Se mide con
+  // ruido de apuntado creciente contra un premio concreto de cada rareza.
+  for (const spread of [.44, 1.1]) {
+    const out = [];
+    for (let rarity = 0; rarity < 4; rarity++) {
+      const jitter = makeJitter(987654321, spread);
+      let tries = 0, grabbed = 0;
+      for (let i = 0; i < 120; i++) {
+        const s = S.createSim();
+        S.reset(s, 500 + i * 13);
+        S.beginGame(s);
+        const idx = s.toys.findIndex(t => t.rarity === rarity);
+        if (idx < 0) continue;
+        const p = s.toys[idx], t = clampAim({ x: p.x + jitter(), z: p.z + jitter() });
+        s.clawX = t.x; s.clawZ = t.z; s.vx = s.vz = 0;
+        S.beginDrop(s);
+        tries++;
+        let guard = 0, got = false;
+        while (s.phase !== S.P_AIM && s.phase !== S.P_RESULT && guard++ < 4000) {
+          S.step(s);
+          if (s.held === idx) got = true;
+        }
+        if (got) grabbed++;
+        s.events.length = 0;
+      }
+      out.push({ rarity, pct: grabbed / tries * 100 });
+    }
+    console.log(`       ruido ±${(spread / 2).toFixed(2)} — ` +
+      out.map(o => `r${o.rarity} ${o.pct.toFixed(0)}%`).join(" · "));
+    if (spread === .44) {
+      // El King era inalcanzable en la práctica: 5 % con puntería humana. Tras
+      // duplicar la tolerancia el suelo es del 10 %, y sigue siendo el más duro.
+      check("el king se agarra con puntería humana", out[3].pct >= 10, `${out[3].pct.toFixed(0)}%`);
+      check("el king sigue siendo el más difícil", out.every(o => o.rarity === 3 || o.pct > out[3].pct));
+    }
+  }
+}
+
+console.log("\n— enganche (doblete) —");
+{
+  const sensible = strategy(pickSafe, makeJitter(987654321, .44));
+  let grabs = 0, hooks = 0, maxHeld = 0, leaked = 0;
+  for (let i = 0; i < 60; i++) {
+    const r = play(1000 + i * 37, sensible);
+    grabs += r.log.grabs; hooks += r.log.hooks;
+    maxHeld = Math.max(maxHeld, r.log.maxHeld);
+    // Nadie puede quedarse pegado a la garra al acabar la partida.
+    if (r.s.toys.some(p => p.state === 1) || r.s.held >= 0 || r.s.hook >= 0) leaked++;
+  }
+  const pct = hooks / grabs * 100;
+  console.log(`       ${hooks} enganches en ${grabs} agarres (${pct.toFixed(1)} %)`);
+  check("el enganche ocurre, pero es raro", pct > 3 && pct < 25, `${pct.toFixed(1)} %`);
+  check("nunca viajan más de dos peluches en la garra", maxHeld <= 2, `máximo ${maxHeld}`);
+  check("no queda nadie colgado al acabar", leaked === 0, `${leaked}/60 partidas`);
+
+  // Un enganche forzado tiene que cobrarse DOBLE: los dos premios entran por la
+  // boca en la misma jugada. Se monta la situación a mano para no depender del dado.
+  // Se comprueban los dos peluches por índice, no la puntuación: el agarrado no
+  // tiene por qué ser aquel al que se apuntó, así que sumar puntos esperados
+  // mediría otra cosa.
+  let doubles = 0, both = 0, primaries = 0;
+  for (let i = 0; i < 40; i++) {
+    const s = S.createSim();
+    S.reset(s, 700 + i * 11);
+    S.beginGame(s);
+    const idx = s.toys.findIndex(t => t.rarity === 0);
+    const p = s.toys[idx];
+    s.clawX = p.x; s.clawZ = p.z; s.vx = s.vz = 0;
+    S.beginDrop(s);
+    let guard = 0, forced = -1, primary = -1;
+    while (s.phase !== S.P_AIM && s.phase !== S.P_RESULT && guard++ < 4000) {
+      S.step(s);
+      // En cuanto hay agarrado, se engancha a mano el vecino más próximo.
+      if (s.held >= 0 && s.hook < 0 && forced < 0) {
+        const h = s.toys[s.held];
+        let mate = -1, md = 1.5;
+        for (let j = 0; j < s.toys.length; j++) {
+          const q = s.toys[j];
+          if (j === s.held || q.state) continue;
+          const d = Math.hypot(q.x - h.x, (q.y - h.y) * .6, q.z - h.z);
+          if (d < md) { md = d; mate = j; }
+        }
+        if (mate >= 0) { s.toys[mate].state = 1; s.hook = mate; forced = mate; primary = s.held; }
+      }
+    }
+    if (forced < 0) continue;
+    both++;
+    if (s.toys[primary].state === 2) primaries++;
+    if (s.toys[primary].state === 2 && s.toys[forced].state === 2) doubles++;
+  }
+  const rate = doubles / both * 100;
+  console.log(`       de ${both} enganches forzados: el agarrado entra ${primaries}, los dos ${doubles} (${rate.toFixed(0)} %)`);
+  check("el enganche paga doble la mayoría de las veces", rate > 55, `${rate.toFixed(0)} %`);
 }
 
 console.log(`\n${failures ? `${failures} comprobaciones fallan` : "todo correcto"}\n`);

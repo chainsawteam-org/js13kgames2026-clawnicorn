@@ -2,8 +2,8 @@
 // Todo avanza en pasos fijos de H segundos, así que el resultado no depende
 // del refresco del monitor. Ver docs/GAME_DESIGN.md §5 y §6.
 
-import { FLOOR, X0, X1, Z0, Z1, MOUTH_X, MOUTH_Z, MOUTH_R, SHAPE_COUNT, surface } from "./shapes";
-export { FLOOR, X0, X1, Z0, Z1, MOUTH_X, MOUTH_Z, MOUTH_R, surface } from "./shapes";
+import { FLOOR, X0, X1, Z0, Z1, MOUTH_R, SHAPE_COUNT, SHAPES, surface } from "./shapes";
+export { FLOOR, X0, X1, Z0, Z1, MOUTH_R, SHAPE_COUNT, SHAPES, surface } from "./shapes";
 
 export const H = 1 / 120;
 export const CEILING = 4.1;
@@ -16,9 +16,13 @@ const DUR = [0, 0, .85, .45, .18, 1.15, .9, 1.4, .9, .35, 0];
 
 // Eventos que consume main.ts para audio y HUD. La simulación no toca nada externo.
 export const EV_LOWER = 0, EV_CLOSE = 1, EV_GRAB = 2, EV_EMPTY = 3,
-  EV_SLIP = 4, EV_SETTLE = 6, EV_OVER = 7, EV_WIN = 8;
+  EV_SLIP = 4, EV_HOOK = 5, EV_SETTLE = 6, EV_OVER = 7, EV_WIN = 8;
 
-export const POINTS = [100, 200, 500, 5000];
+// Escalera de valor por rareza: Star (6 en el montón) < Rainbow (3) < Unicorn (2)
+// < Unicorn King (2). El índice de rareza ordena a la vez cuántos hay, lo difícil
+// que es agarrarlo y lo que paga, así que la decisión del jugador es siempre la
+// misma pregunta: ¿cuánto riesgo por cuánto premio?
+export const POINTS = [250, 500, 1000, 5000];
 const DIFF = [.15, .25, .40, .70];
 // Agarre mínimo por rareza. Tabla explícita en vez de fórmula: es el mando de
 // balance más sensible del juego y conviene poder moverlo de uno en uno.
@@ -26,7 +30,15 @@ const DIFF = [.15, .25, .40, .70];
 // lo protege.
 // Calibrada contra tools/simtest.mjs: la garra al bajar ya desplaza al objetivo
 // unas 0,35 u, así que un agarre "perfecto" ronda 0,60 y no 1,0.
-const REQUIRED = [.32, .44, .56, .865];
+//
+// Tabla duplicada respecto a la anterior [.32, .44, .56, .865]. El umbral no es la
+// probabilidad: lo que el jugador percibe como "posibilidades de agarre" es el
+// RADIO de puntería que perdona, y como el error de apuntado es un disco, la
+// probabilidad va con su área. Doblarla significa multiplicar ese radio por √2,
+// que es de donde salen estos números. El King era el caso sangrante —.865 dejaba
+// una tolerancia de 0,05 u, inalcanzable con un mando— y el resto sube en la misma
+// proporción. La rareza 0 topa contra GRAB_R: más allá la garra ya no llega.
+const REQUIRED = [.24, .33, .44, .85];
 
 // El peluche son dos esferas: torso en el origen local y cabeza desplazada según yaw.
 const R_BODY = .55, R_HEAD = .37, HEAD_X = .62, HEAD_Y = .5;
@@ -38,8 +50,19 @@ const SLEEP_EPS = 2e-7, SLEEP_FRAMES = 12;
 
 // Claw
 const CLAW_TOP = 2.3, CLAW_BOTTOM = -1.15;
-export const AIM_X = 2.7, AIM_Z = 1.35;          // el carro se mueve sobre el montón
+export const AIM_X = 3.2, AIM_Z = 1.6;          // el carro se mueve sobre el montón
 const GRAB_R = 1.05, HOLD_Y = -1.25;             // el premio agarrado cuelga a HOLD_Y del carro
+
+// Enganche: de vez en cuando un vecino se queda prendido de las pezuñas del premio
+// agarrado y sube con él. Cuelga en la MISMA columna, no al lado: la boca sólo mide
+// MOUTH_R de radio, así que un enganche lateral se quedaría en el borde y el doblete
+// no llegaría a cobrarse nunca. Se busca vecino dentro de HOOK_R del agarrado.
+// HOOK_Y no es un valor estético: la cabeza del de abajo cuelga a HEAD_X del eje,
+// así que si el par va demasiado junto esa cabeza se solapa con el TORSO del de
+// arriba y el empuje resultante es casi horizontal — los dos salen despedidos
+// fuera de la boca. Separación mínima limpia: hypot(HEAD_X, YSQUASH·(HOOK_Y−HEAD_Y))
+// ≥ R_BODY+R_HEAD, que da 1,07. Se deja 1,2 de margen.
+const HOOK_CHANCE = .12, HOOK_R = 1.5, HOOK_Y = 1.2;
 
 export type Toy = {
   x: number; y: number; z: number;
@@ -69,8 +92,8 @@ const rnd = () => {
 // El rincón del conducto queda libre a propósito.
 const LAYOUT: [number, number, number][] = [
   [-2.4, -1.05, 0], [-1.2, -1.05, 0], [0, -1.1, 0], [1.2, -1.05, 0],
-  [2.4, -1.05, 0], [-2.2, -.45, 0], [-1.2, .05, 1], [.05, -.05, 1],
-  [1.25, 0, 1], [2.4, .05, 2], [.2, 1.05, 2], [1.4, 1.1, 3],
+  [2.4, -1.05, 0], [-2.2, -0.45, 0], [-1.2, 0.05, 1], [0.05, -0.05, 1],
+  [1.25, 0, 1], [2.4, 0.05, 2], [0.2, 1.05, 2], [1.4, 1.1, 3],
   [2.5, 1.05, 3]
 ];
 
@@ -82,8 +105,8 @@ export function createSim() {
     clawX: 0, clawY: CLAW_TOP, clawZ: 0, close: 0,
     dropY: CLAW_BOTTOM,
     vx: 0, vz: 0, fromX: 0, fromZ: 0,
-    held: -1, won: false, firstThrow: true,
-    shape: -1,
+    held: -1, hook: -1, won: false, firstThrow: true,
+    shape: -1, mx: 0, mz: 0,       // boca de la forma activa
     inX: 0, inZ: 0,               // input normalizado que escribe main.ts
     events: [] as number[]
   };
@@ -96,10 +119,13 @@ export function reset(s: Sim, gameSeed: number) {
   const oldShape = s.shape;
   s.shape = oldShape < 0 ? gameSeed % SHAPE_COUNT :
     (oldShape + 1 + ((gameSeed >>> 8) % (SHAPE_COUNT - 1))) % SHAPE_COUNT;
+  // Cada relieve trae su propia boca: cambia la ruta del carro y qué premios
+  // están "cerca del agujero", que es media personalidad de la forma.
+  s.mx = SHAPES[s.shape]![0]!; s.mz = SHAPES[s.shape]![1]!;
   setSeed(gameSeed);
   s.score = 0; s.tries = 5; s.phase = P_TITLE; s.time = 0;
   s.clawX = s.clawZ = s.vx = s.vz = 0; s.clawY = CLAW_TOP; s.close = 0;
-  s.held = -1; s.won = false; s.firstThrow = true; s.events.length = 0;
+  s.held = -1; s.hook = -1; s.won = false; s.firstThrow = true; s.events.length = 0;
 
   // Cada índice conserva su rareza para poder reutilizar su modelo WebGL entre
   // partidas. Se barajan las posiciones, que produce la misma distribución sin
@@ -116,10 +142,21 @@ export function reset(s: Sim, gameSeed: number) {
       z, rnd() * 360, l[2]);
   });
 
-  // Asentado inicial: el montón descansa de verdad antes del primer frame.
-  // Durante la carga inicial la boca se protege para que la partida no empiece
-  // con premios ya cobrados. Después queda abierta durante todo el juego.
+  // Asentado inicial en dos tiempos. Primero con la boca tapada, para que el
+  // montón no se cuele por el conducto mientras cae. Después con ella abierta,
+  // porque si no el montón se queda comprimido contra un cilindro invisible y
+  // al empezar la partida se derrumba dentro regalando premios. Al que se cuela
+  // en esa segunda fase se le vuelve a lanzar desde el lado opuesto.
   for (let i = 0; i < 260; i++) { integrate(s); constrain(s, false, true); }
+  for (let i = 0; i < 240; i++) {
+    integrate(s); constrain(s, false);
+    for (const p of s.toys) if (p.state) {
+      p.state = 0; p.sleep = 0;
+      p.x = p.ox = -p.x; p.z = p.oz = -p.z;
+      p.y = p.oy = surface(s.shape, p.x, p.z).y + FEET + 1.5;
+    }
+  }
+  s.score = 0; s.events.length = 0;
   for (const p of s.toys) { p.sleep = SLEEP_FRAMES; }
 }
 
@@ -213,6 +250,9 @@ function clawSolve(s: Sim, p: Toy, apply: boolean) {
 
 function constrain(s: Sim, clawOn: boolean, loading = false) {
   const toys = s.toys;
+  // El enganchado cuelga por DEBAJO de las puntas de las patas: proyectarlo contra
+  // ellas lo escupiría de lado en cada paso y rompería el doblete.
+  const hooked = s.hook >= 0 ? toys[s.hook]! : null;
 
   if (clawOn) {
     // Varios contactos pueden acuñar un premio aunque las reglas no hayan
@@ -226,7 +266,7 @@ function constrain(s: Sim, clawOn: boolean, loading = false) {
     // El premio oficial bloquea el cierre. Durante el transporte ya comparte
     // pose con la garra mediante el muelle; seguir proyectándolo contra las
     // patas lo expulsaría lateralmente en cada paso.
-    for (const p of toys) if (!p.state || p.state === 1 && s.phase <= P_PAUSE) {
+    for (const p of toys) if (p !== hooked && (!p.state || p.state === 1 && s.phase <= P_PAUSE)) {
       const contacts = clawSolve(s, p, false);
       if (s.close > .2 && contacts) s.vx = 1;
       if (!p.state && s.phase === P_CLOSE && contacts > p.rarity) p.slipAt = -2;
@@ -239,6 +279,20 @@ function constrain(s: Sim, clawOn: boolean, loading = false) {
   if (s.held >= 0) {
     const p = toys[s.held]!;
     push(p, (s.clawX - p.x) * .35, (s.clawY + HOLD_Y - p.y) * .35, (s.clawZ - p.z) * .35, .7);
+
+  }
+
+  // Muelle del enganchado, más blando: llega arrastrándose y se balancea un paso
+  // por detrás. Cuelga del agarrado mientras lo haya y, cuando éste ya se ha
+  // soltado sobre la boca, del propio carro: así se queda centrado sobre el
+  // agujero esperando su turno. Su objetivo nunca baja del relieve, de modo que
+  // con la garra abajo va rozando el montón en vez de hundirse en él.
+  if (hooked) {
+    const p = s.held >= 0 ? toys[s.held]! : null;
+    const ax = p ? p.x : s.clawX, az = p ? p.z : s.clawZ;
+    const ay = (p ? p.y : s.clawY + HOLD_Y) - HOOK_Y;
+    const ty = Math.max(ay, surface(s.shape, hooked.x, hooked.z).y + FEET);
+    push(hooked, (ax - hooked.x) * .28, (ty - hooked.y) * .28, (az - hooked.z) * .28, .7);
   }
 
   // Colisión premio-premio: dos esferas por peluche, dos iteraciones Gauss-Seidel.
@@ -285,8 +339,11 @@ function constrain(s: Sim, clawOn: boolean, loading = false) {
       // La boca es un agujero real: da igual si el premio llega en la garra, cae
       // por un derrumbe o lo empuja otro. En cuanto su centro entra en la abertura
       // deja de apoyarse en el suelo y cae por el conducto.
-      const dx = p.x - MOUTH_X, dz = p.z - MOUTH_Z, md = Math.hypot(dx, dz) || 1e-4;
+      const dx = p.x - s.mx, dz = p.z - s.mz, md = Math.hypot(dx, dz) || 1e-4;
       if (loading && md < MOUTH_R + R_BODY) {
+        // Sólo durante el asentado la boca se tapa, para que la partida no
+        // empiece con premios ya cobrados. En juego el agujero está abierto: un
+        // derrumbe o un empujón pueden colar un premio, y eso es deseable.
         const q = MOUTH_R + R_BODY - md;
         push(p, dx / md * q, 0, dz / md * q, .6);
         supportSolve(s, p);
@@ -334,6 +391,7 @@ function win(s: Sim, i: number) {
   s.won = true;
   s.score += POINTS[p.rarity]!;
   if (s.held === i) s.held = -1;
+  if (s.hook === i) s.hook = -1;
   // EV_WIN ocupa un rango propio: la rareza viaja en el evento para que dos
   // premios que caigan en el mismo frame conserven su valor individual.
   s.events.push(EV_WIN + p.rarity);
@@ -370,12 +428,29 @@ function resolveGrab(s: Sim) {
     if (grip >= REQUIRED[p.rarity]! && grip > bestGrip) { bestGrip = grip; best = i; }
   }
   s.close = open;
-  // Siempre se consumen los dos números para que el flujo del PRNG no dependa del resultado.
-  const r1 = rnd(), r2 = rnd();
-  if (best < 0) { s.events.push(EV_EMPTY); return; }
+  // Siempre se consumen los tres números para que el flujo del PRNG no dependa del resultado.
+  const r1 = rnd(), r2 = rnd(), r3 = rnd();
+  if (best < 0) return;
 
   const p = s.toys[best]!;
   p.state = 1; s.held = best;
+
+  // Enganche: con poca frecuencia el vecino más pegado al agarrado se queda
+  // prendido y sube con él, valiendo un doblete. Se elige el más cercano en vez
+  // de uno al azar para que la jugada se lea: el que estaba encima es el que sube.
+  if (r3 < HOOK_CHANCE) {
+    let mate = -1, md = HOOK_R;
+    for (let i = 0; i < s.toys.length; i++) {
+      const q = s.toys[i]!;
+      if (i === best || q.state) continue;
+      const d = Math.hypot(q.x - p.x, (q.y - p.y) * .6, q.z - p.z);
+      if (d < md) { md = d; mate = i; }
+    }
+    if (mate >= 0) {
+      s.toys[mate]!.state = 1; s.toys[mate]!.sleep = 0; s.hook = mate;
+      s.events.push(EV_HOOK);
+    }
+  }
   // Probabilidad de resbalón durante la subida. Calibrada para que se vea: con la
   // curva anterior (base .02, penalización .20 por agarre) salía negativa para las
   // rarezas bajas y la mecánica no llegaba a dispararse nunca.
@@ -384,7 +459,20 @@ function resolveGrab(s: Sim) {
   s.events.push(EV_GRAB);
 }
 
+function releaseHook(s: Sim) {
+  if (s.hook < 0) return;
+  const q = s.toys[s.hook]!;
+  q.state = 0; q.sleep = 0;
+  s.hook = -1;
+}
+
 function release(s: Sim, slipped: boolean) {
+  // Los dos se sueltan A LA VEZ, y eso NO es descuido: en caída libre la distancia
+  // entre ellos se conserva, así que el par cae en columna sin tocarse. Escalonar
+  // la suelta es justo lo que los rompe —el enganchado se queda quieto haciendo de
+  // obstáculo y desvía al agarrado fuera del agujero—, y está medido: 18 % de
+  // dobletes escalonando contra 39 % soltando a la vez.
+  releaseHook(s);
   if (s.held < 0) return;
   const p = s.toys[s.held]!;
   // Siempre vuelve a ser físico al soltarse. La boca decide después si consigue
@@ -431,21 +519,33 @@ function advance(s: Sim) {
     if (t >= 1) { s.fromX = s.clawX; s.fromZ = s.clawZ; goto(s, P_CARRY); }
   } else if (phase === P_CARRY) {
     const e = ease(t);
-    s.clawX = s.fromX + (MOUTH_X - s.fromX) * e;
-    s.clawZ = s.fromZ + (MOUTH_Z - s.fromZ) * e;
+    s.clawX = s.fromX + (s.mx - s.fromX) * e;
+    s.clawZ = s.fromZ + (s.mz - s.fromZ) * e;
     if (t >= 1) goto(s, P_DROP);
   } else if (phase === P_DROP) {
+    // El fallo se anuncia al abrirse los dedos sobre la boca, que es cuando el
+    // jugador ve que no cae nada. Al final del ciclo llegaba tarde, con la garra
+    // ya de vuelta arriba. Sólo el primer paso de la fase: `close` no sirve de
+    // disparador porque se queda congelado si el cierre chocó con un premio.
+    if (s.held < 0 && s.time <= H) s.events.push(EV_EMPTY);
     s.close *= .9;
     if (s.close < .72) release(s, false);
-    if (t >= 1) { s.fromX = s.clawX; s.fromZ = s.clawZ; goto(s, P_RETURN); }
+    // Red de seguridad: en P_RETURN el carro se va, así que nadie puede seguir
+    // colgando de él aunque no haya llegado a pasar por `release`.
+    if (t >= 1) { releaseHook(s); s.fromX = s.clawX; s.fromZ = s.clawZ; goto(s, P_RETURN); }
   } else if (phase === P_RETURN) {
     const e = 1 - ease(t);
     s.clawX = s.fromX * e; s.clawZ = s.fromZ * e;
     if (t >= 1) goto(s, P_SETTLE);
   } else if (phase === P_SETTLE) {
-    if (t >= 1) {
+    // Nada se cierra mientras quede un premio bajando por el conducto. Si no, la
+    // última tirada puede aterrizar DESPUÉS del cartel de resultado y el jugador
+    // lee una puntuación que ya no es la suya. La espera termina siempre: dentro
+    // del conducto la caída es libre y siempre cruza el suelo.
+    const falling = s.toys.some(p => p.state === 3);
+    if (t >= 1 && !falling) {
       s.firstThrow = false;
-      s.events.push(s.won ? EV_SETTLE : EV_EMPTY);
+      s.events.push(EV_SETTLE);
       if (s.tries <= 0) { goto(s, P_RESULT); s.events.push(EV_OVER); }
       else { goto(s, P_AIM); s.vx = s.vz = 0; }
     }
@@ -455,7 +555,10 @@ function advance(s: Sim) {
 export function step(s: Sim) {
   advance(s);
   integrate(s);
-  constrain(s, s.phase >= P_LOWER && s.phase <= P_DROP, !s.phase);
+  // La boca sólo se tapa durante el asentado de `reset`. Si se siguiera tapando
+  // en el título, el montón quedaría comprimido contra ella y se derrumbaría
+  // dentro al empezar la partida.
+  constrain(s, s.phase >= P_LOWER && s.phase <= P_DROP);
 }
 
 // -------------------------------------------------------------------- entradas

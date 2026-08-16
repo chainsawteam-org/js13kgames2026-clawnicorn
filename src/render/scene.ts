@@ -1,5 +1,5 @@
 import { CEILING, type Toy } from "../game/sim";
-import { FLOOR, MOUTH_X, MOUTH_Z, MOUTH_R, PYRAMID, TERRACES } from "../game/shapes";
+import { FLOOR, MOUTH_R, SHAPES } from "../game/shapes";
 import { W } from "./w";
 
 const PINK = "#b94d86", DARK = "#302849", WHITE = "#fff8ee", GOLD = "#ffd05d";
@@ -11,7 +11,7 @@ const cube = (n: string, g: string, x: number, y: number, z: number,
 
 // La plataforma llena casi todo el interior del mueble. El montón mantiene sus
 // límites físicos más compactos (X0…Z1) para conservar densidad y jugabilidad.
-const TX0 = -4.25, TX1 = 4.25, TZ0 = -2.35, TZ1 = 2.25;
+const TX0 = -4.85, TX1 = 4.85, TZ0 = -2.7, TZ1 = 2.6;
 const BX = (TX0 + TX1) / 2, BZ = (TZ0 + TZ1) / 2;
 const BW = TX1 - TX0, BD = TZ1 - TZ0, WALL = .25;
 
@@ -65,44 +65,98 @@ export function createScene(canvas: HTMLCanvasElement, toys: Toy[], shape: numbe
 
   // Bandeja de premios. Cuatro losas disjuntas rodean un hueco interior real;
   // ninguna cubre ni se solapa con otra. El pozo queda bastante por debajo.
-  const GAP = MOUTH_R + .18;
-  const HX0 = MOUTH_X - GAP, HX1 = MOUTH_X + GAP;
-  const HZ0 = MOUTH_Z - GAP, HZ1 = MOUTH_Z + GAP;
+  // El pozo y su labio viven en un grupo propio porque la boca cambia de sitio
+  // con la forma: se trasladan enteros y sólo las losas hay que redimensionarlas.
+  const GAP = MOUTH_R + .18, HOLE = GAP * 2, lip = .1, RIM = .14;
   const SX0 = TX0 - WALL, SX1 = TX1 + WALL, SZ0 = TZ0 - WALL, SZ1 = TZ1 + WALL;
-  const slab = (x0: number, x1: number, z0: number, z1: number) =>
-    cube("", "machine", (x0 + x1) / 2, FLOOR - .08, (z0 + z1) / 2,
+  const slab = (n: string, x0: number, x1: number, z0: number, z1: number) =>
+    cube(n, "machine", (x0 + x1) / 2, FLOOR - .08, (z0 + z1) / 2,
       x1 - x0, .16, z1 - z0, "#c02a69");
-  slab(SX0, SX1, SZ0, HZ0);
-  slab(SX0, SX1, HZ1, SZ1);
-  slab(SX0, HX0, HZ0, HZ1);
-  slab(HX1, SX1, HZ0, HZ1);
 
-  const holeW = HX1 - HX0, holeD = HZ1 - HZ0, wellY = FLOOR - .42;
-  cube("", "machine", MOUTH_X, FLOOR - .82, MOUTH_Z, holeW, .08, holeD, "#160714");
-  cube("", "machine", HX0 + .06, wellY, MOUTH_Z, .12, .84, holeD, "#32102d");
-  cube("", "machine", HX1 - .06, wellY, MOUTH_Z, .12, .84, holeD, "#32102d");
-  cube("", "machine", MOUTH_X, wellY, HZ0 + .06, holeW, .84, .12, "#260c24");
-  cube("", "machine", MOUTH_X, wellY, HZ1 - .06, holeW, .84, .12, "#44143b");
-
+  W.group({ n: "hole", g: "machine" });
+  const wellY = FLOOR - .42;
+  cube("", "hole", 0, FLOOR - .82, 0, HOLE, .08, HOLE, "#160714");
+  cube("", "hole", -GAP + .06, wellY, 0, .12, .84, HOLE, "#32102d");
+  cube("", "hole", GAP - .06, wellY, 0, .12, .84, HOLE, "#32102d");
+  cube("", "hole", 0, wellY, -GAP + .06, HOLE, .84, .12, "#260c24");
+  cube("", "hole", 0, wellY, GAP - .06, HOLE, .84, .12, "#44143b");
   // Un labio bajo enmarca la abertura sin ocultarla desde la cámara inicial.
-  const lip = .1;
-  cube("", "machine", HX0 - lip / 2, FLOOR + .07, MOUTH_Z, lip, .14, holeD + lip * 2, GOLD);
-  cube("", "machine", HX1 + lip / 2, FLOOR + .07, MOUTH_Z, lip, .14, holeD + lip * 2, GOLD);
-  cube("", "machine", MOUTH_X, FLOOR + .07, HZ0 - lip / 2, holeW, .14, lip, GOLD);
-  cube("", "machine", MOUTH_X, FLOOR + .07, HZ1 + lip / 2, holeW, .14, lip, GOLD);
+  const rimY = FLOOR + RIM / 2;
+  cube("", "hole", -GAP - lip / 2, rimY, 0, lip, RIM, HOLE + lip * 2, GOLD);
+  cube("", "hole", GAP + lip / 2, rimY, 0, lip, RIM, HOLE + lip * 2, GOLD);
+  cube("", "hole", 0, rimY, -GAP - lip / 2, HOLE, RIM, lip, GOLD);
+  cube("", "hole", 0, rimY, GAP + lip / 2, HOLE, RIM, lip, GOLD);
 
-  // Se crean los dos relieves una sola vez y se alternan moviendo sus grupos.
-  // Así cambiar de partida no reinicializa WebGL ni recompila los shaders.
-  W.group({ n: "reliefP", g: "machine", y: shape === 1 ? 0 : -40 });
-  const [px, pz, pw, pd, ph] = PYRAMID;
-  W.pyramid({ n: "", g: "reliefP", x: px, y: FLOOR + ph / 2, z: pz, w: pw, h: ph, d: pd, b: "#8b5685" });
-  W.group({ n: "reliefT", g: "machine", y: shape === 2 ? 0 : -40 });
-  for (let i = 0; i < TERRACES.length - 2; i += 2) {
-    const z0 = TERRACES[i]!, y0 = TERRACES[i + 1]!, z1 = TERRACES[i + 2]!, y1 = TERRACES[i + 3]!;
-    const slope = (y1 - y0) / (z1 - z0), a = -Math.atan(slope), thick = .12;
-    cube("", "reliefT", BX, FLOOR + (y0 + y1) / 2 - thick / (2 * Math.cos(a)),
-      (z0 + z1) / 2, BW, thick, (z1 - z0) / Math.cos(a), "#80547e", { rx: a * 57.3 });
+  const layoutHole = (mx: number, mz: number) => {
+    const z0 = mz - GAP, z1 = mz + GAP;
+    slab("f0", SX0, SX1, SZ0, z0);
+    slab("f1", SX0, SX1, z1, SZ1);
+    slab("f2", SX0, mx - GAP, z0, z1);
+    slab("f3", mx + GAP, SX1, z0, z1);
+    W.move({ n: "hole", x: mx, z: mz });
+  };
+
+  // Un grupo de relieve por forma, creados una sola vez y escondidos bajo el
+  // mueble salvo el activo. Así cambiar de partida no reinicializa WebGL.
+  // La geometría sale de la MISMA tabla que usa la física: no hay dos
+  // descripciones que puedan desincronizarse.
+  for (let f = 0; f < SHAPES.length; f++) {
+    const t = SHAPES[f]!, g = `r${f}`, radial = t[2]!;
+    // En modo 0 el grupo gira para que su eje Z local sea el del perfil.
+    W.group({ n: g, g: "machine", y: f === shape ? 0 : -40,
+      ry: radial ? 0 : Math.atan2(t[3]!, t[4]!) * 57.3 });
+    // El eje del perfil manda: `cross` es el ancho perpendicular que hay que
+    // cubrir y `tLo` el borde de la bandeja por el lado que la física extrapola.
+    const axisZ = Math.abs(t[4]!) > Math.abs(t[3]!);
+    const cross = (axisZ ? BW : BD) + .2, tLo = -((axisZ ? BD : BW) + .2) / 2;
+    for (let i = 7; i < t.length - 2; i += 2) {
+      let t0 = t[i]!, y0 = t[i + 1]!;
+      const t1 = t[i + 2]!, y1 = t[i + 3]!;
+      const b = i % 4 ? "#80547e" : "#8b5685";
+      if (radial) {
+        // Cada terraza es una caja hasta su borde exterior; sus paredes son los
+        // frentes verticales. Un tramo que baja hasta el suelo desde el centro
+        // es una pirámide de verdad y se dibuja como tal; los demás desniveles
+        // se escalonan, porque si no la rampa que resuelve la física queda por
+        // encima de la geometría y el premio se apoya en el aire.
+        // El tope es la distancia del centro de la forma al borde MÁS lejano de
+        // la bandeja, no BW/BD: la bandeja no está centrada y un tope centrado
+        // deja una ranura contra la pared opuesta. Lo que sobre lo tapan los muros.
+        const spanX = Math.max(TX1 - t[3]!, t[3]! - TX0) + .1;
+        const spanZ = Math.max(TZ1 - t[4]!, t[4]! - TZ0) + .1;
+        const size = (tt: number) =>
+          [2 * Math.min(tt * t[5]!, spanX), 2 * Math.min(tt * t[6]!, spanZ)] as const;
+        const ring = (tt: number, yy: number) => {
+          const [w, d] = size(tt);
+          if (yy > 0) cube("", g, t[3]!, FLOOR + yy / 2, t[4]!, w, yy, d, b);
+        };
+        if (y0 === y1) ring(t1, y0);
+        else if (!y1 && !t0)
+          W.pyramid({ n: "", g, x: t[3]!, y: FLOOR + y0 / 2, z: t[4]!, h: y0, b,
+            w: size(t1)[0], d: size(t1)[1] });
+        else for (let s = 1; s < 4; s++)
+          ring(t0 + (t1 - t0) * s / 3, y0 + (y1 - y0) * s / 3);
+      } else {
+        // Por debajo del primer punto la física prolonga este tramo con su misma
+        // pendiente, así que el relieve se estira hasta la pared: si no, el
+        // montón se corta a media bandeja y deja una zanja contra el fondo.
+        if (i === 7 && t0 > tLo) {
+          y0 += (tLo - t0) * (y1 - y0) / (t1 - t0);
+          t0 = tLo;
+        }
+        // Los llanos son bloque macizo hasta el suelo, como las terrazas
+        // radiales; sólo las rampas necesitan una losa inclinada.
+        if (y0 === y1) {
+          if (y0) cube("", g, 0, FLOOR + y0 / 2, (t0 + t1) / 2, cross, y0, t1 - t0, b);
+        } else if (y0 || y1) {
+          const a = -Math.atan((y1 - y0) / (t1 - t0)), thick = .12;
+          cube("", g, 0, FLOOR + (y0 + y1) / 2 - thick / (2 * Math.cos(a)),
+            (t0 + t1) / 2, cross, thick, (t1 - t0) / Math.cos(a), b, { rx: a * 57.3 });
+        }
+      }
+    }
   }
+  layoutHole(SHAPES[shape]![0]!, SHAPES[shape]![1]!);
 
   cube("", "machine", TX0 - WALL / 2, FLOOR + .3, BZ, WALL, .72, BD + WALL * 2, "#b45d91");
   cube("", "machine", TX1 + WALL / 2, FLOOR + .3, BZ, WALL, .72, BD + WALL * 2, "#b45d91");
@@ -146,8 +200,8 @@ export function createScene(canvas: HTMLCanvasElement, toys: Toy[], shape: numbe
   return {
     resize,
     setShape(next: number) {
-      W.move({ n: "reliefP", y: next === 1 ? 0 : -40 });
-      W.move({ n: "reliefT", y: next === 2 ? 0 : -40 });
+      for (let f = 0; f < SHAPES.length; f++) W.move({ n: `r${f}`, y: f === next ? 0 : -40 });
+      layoutHole(SHAPES[next]![0]!, SHAPES[next]![1]!);
     },
     moveCamera(yaw: number, pitch: number) { applyCamera(yaw, pitch); },
 
@@ -219,7 +273,8 @@ function makePrize(i: number, p: Toy) {
   }
 
   // Estrella acolchada: cinco puntas independientes para una silueta inequívoca.
-  if (p.rarity === 2) {
+  // Es el premio de entrada (rareza 0, seis en el montón, 250 pts).
+  if (p.rarity === 0) {
     W.sphere({ n: "", g, w: 1.02, h: 1.02, d: .58, b: GOLD });
     for (let q = 0; q < 5; q++) {
       const a = 90 + q * 72, r = a * Math.PI / 180;
@@ -229,11 +284,11 @@ function makePrize(i: number, p: Toy) {
     return;
   }
 
-  // Los extremos de la escala sí son unicornios: Cloud y King.
-  const cloud = p.rarity === 0, king = p.rarity === 3;
-  const b = cloud ? WHITE : GOLD, m = cloud ? "#91dfe0" : "#8151b5";
-  W.sphere({ n: "", g, w: cloud ? 1.48 : 1.24, h: cloud ? 1.25 : 1.18, d: cloud ? 1.08 : .94, b });
-  W.sphere({ n: "", g, x: .62, y: cloud ? .5 : .55, w: .8, h: .8, d: .72, b });
+  // Los dos escalones altos son unicornios: el Unicorn y el Unicorn King.
+  const unicorn = p.rarity === 2, king = p.rarity === 3;
+  const b = unicorn ? WHITE : GOLD, m = unicorn ? "#91dfe0" : "#8151b5";
+  W.sphere({ n: "", g, w: unicorn ? 1.48 : 1.24, h: unicorn ? 1.25 : 1.18, d: unicorn ? 1.08 : .94, b });
+  W.sphere({ n: "", g, x: .62, y: unicorn ? .5 : .55, w: .8, h: .8, d: .72, b });
   W.sphere({ n: "", g, x: .98, y: .33, w: .45, h: .34, d: .62, b: WHITE });
   for (const z of [-.35, .35]) {
     cube("", g, -.35, -.56, z, .32, .38, .3, b, { rz: 8 });
@@ -250,7 +305,7 @@ function makePrize(i: number, p: Toy) {
       n: "", g, x: .15 - q * .23, y: .72 - q * .16, z: 0,
       size: .42, b: king && q === 1 ? GOLD : m
     });
-  W.sphere({ n: "", g, x: -.75, y: .1, size: cloud ? .55 : .4, b: m });
+  W.sphere({ n: "", g, x: -.75, y: .1, size: unicorn ? .55 : .4, b: m });
   if (king) {
     cube("", g, .48, 1.16, 0, .72, .18, .58, GOLD);
     for (let q = -1; q < 2; q++)

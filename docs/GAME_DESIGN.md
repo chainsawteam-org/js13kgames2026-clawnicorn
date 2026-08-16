@@ -1,6 +1,6 @@
 # UNICORN CLAW — diseño y arquitectura de implementación
 
-Estado: simulación y bucle jugable implementados
+Estado: simulación, bucle jugable y controles (teclado + táctil) implementados
 Objetivo: js13kGames 2026, ZIP final ≤ **13.312 bytes**
 Tema de diseño: **Unicorns and Rainbows**
 
@@ -35,26 +35,36 @@ el desenlace.
    sombreado plano y audio generado.
 
 MVP obligatorio: escena 3D, 13 premios, control X/Z, ciclo completo del gancho,
-cinco intentos, cuatro rarezas, puntuación, final y reinicio, teclado, audio
-procedural y feedback visual de éxito/fallo.
+cinco intentos, cuatro rarezas, puntuación, final y reinicio, teclado, **táctil**,
+audio procedural y feedback visual de éxito/fallo.
+
+El táctil subió a obligatorio: el diseño original lo condicionaba a que sobraran
+800 bytes, pero cabe holgadamente y una parte del jurado de la jam juega en el
+móvil. Los detalles están en §7.4.
 
 Fuera del MVP: modelos externos, texturas, sombras reales, postprocesado,
-multijugador, persistencia online, niveles, tienda, localización y menús
-complejos. Touch/gamepad sólo entran si quedan al menos 800 bytes libres.
+multijugador, persistencia online, niveles, tienda, localización, menús
+complejos y **gamepad**.
 
 ## 3. Bucle jugable
 
-1. La máquina aparece llena. Un rótulo breve muestra flechas/WASD + espacio.
+1. La máquina aparece llena. Un rótulo breve muestra flechas/WASD + espacio; en
+   puntero grueso ese rótulo se oculta y los propios controles en pantalla hacen
+   de tutorial.
 2. En `AIM`, el jugador mueve el carro sobre el plano X/Z. Una retícula sobre el
    suelo de la bandeja proyecta su posición.
 3. Espacio fija la posición. El gancho baja **hasta apoyarse en el montón**, no
    siempre hasta el fondo, y el sistema resuelve una captura una sola vez.
 4. Los dedos se cierran, hay una pausa breve y sube con premio o vacío. Una
-   captura puede resbalar durante la subida.
+   captura puede resbalar durante la subida, y de vez en cuando sube **enganchado
+   un segundo peluche** que vale un doblete (§5.6).
 5. Si llega arriba, el carro viaja al conducto y suelta el premio, que cae por el
    agujero de la bandeja y suma puntos.
 6. El montón se reacomoda solo: no hay paso de recolocación artificial.
-7. Tras cinco intentos aparece el resultado y `R`/espacio inicia otra partida.
+7. Tras cinco intentos aparece el resultado y `R`/espacio inicia otra partida. El
+   cartel espera a que no quede nada bajando por el conducto: si no, la última
+   tirada podría aterrizar después y el jugador leería una puntuación que ya no es
+   la suya.
 
 No se permite mover el carro durante una animación. El input se ignora salvo la
 tecla de mute (`M`).
@@ -63,10 +73,15 @@ tecla de mute (`M`).
 
 | Rareza | Cantidad | Puntos | `REQUIRED` | Entrega con puntería perfecta |
 |---|---:|---:|---:|---:|
-| Unicorn Cloud | 6 | 100 | 0,32 | 63 % |
-| Rainbow Item | 3 | 200 | 0,44 | 63 % |
-| Star | 2 | 500 | 0,56 | 50 % |
-| Unicorn King | 2 | 5.000 | 0,865 | 18 % |
+| Star | 6 | 250 | 0,24 | 95 % |
+| Rainbow Item | 3 | 500 | 0,33 | 97 % |
+| Unicorn | 2 | 1.000 | 0,44 | 95 % |
+| Unicorn King | 2 | 5.000 | 0,85 | 85 % |
+
+El índice de rareza ordena **a la vez** cuántos hay en el montón, lo difícil que es
+agarrarlo y lo que paga, así que la decisión del jugador es siempre la misma
+pregunta: cuánto riesgo por cuánto premio. La Star es el premio de entrada y el
+Unicorn el escalón alto de la escala normal; el King queda aparte.
 
 Los porcentajes están **medidos**, no estimados: los produce `npm run simtest`.
 
@@ -74,17 +89,39 @@ La tabla `REQUIRED` es el mando de balance más sensible del juego y por eso es
 una tabla explícita y no una fórmula. Con la boca abierta, una entrega también
 puede producirse por empuje; cualquier cambio exige volver a medir el conjunto.
 
+**El tiro perfecto no es la métrica que importa.** Con puntería exacta casi todo
+entra, incluso el King; lo que el jugador percibe como "posibilidades de agarre"
+es cuánta puntería perdona el sistema. Medido con ruido de apuntado (`simtest`,
+§ *tolerancia de puntería*), contra la tabla anterior `[0,32 0,44 0,56 0,865]`:
+
+| Ruido de apuntado | Star | Rainbow | Unicorn | King |
+|---|---:|---:|---:|---:|
+| ±0,22 antes → ahora | 97 → 99 % | 98 → 99 % | 94 → 96 % | **5 → 11 %** |
+| ±0,55 antes → ahora | 92 → 94 % | 82 → 90 % | 62 → 79 % | **1 → 3 %** |
+
+La tabla actual es la anterior **con la tolerancia duplicada**. El umbral no es
+una probabilidad: como el error de apuntado es un disco, la probabilidad va con el
+*área* del radio que se perdona, y doblarla significa multiplicar ese radio por √2.
+El King era el caso sangrante —0,865 dejaba una tolerancia de 0,05 u, inalcanzable
+con un mando— y ahí el efecto se ve entero. Las rarezas bajas suben poco porque ya
+estaban cerca del techo: el radio no puede pasar de `GRAB_R`, más allá la garra
+sencillamente no llega.
+
 **La decisión existe y está verificada.** Contra el mismo conjunto de semillas:
 
 | Estrategia | Media | Premios | Partidas a cero | Con jackpot |
 |---|---:|---:|---:|---:|
-| Codiciosa (siempre el King) | 5.165 pts | 4,83 | 0/60 | 44/60 |
-| Conservadora (el más despejado) | 1.585 pts | 3,67 | 0/60 | 11/60 |
+| Codiciosa (siempre el King) | 2.308 pts | 1,27 | 23/60 | 20/60 |
+| Conservadora (el más despejado) | 2.571 pts | 4,37 | 3/60 | 9/60 |
 
 La boca abierta recompensa las jugadas emergentes: perseguir al King también
-puede empujarlo a él o a sus vecinos al conducto. La estrategia codiciosa paga
-más, mientras la conservadora sigue siendo fiable. `simtest` falla si la brecha
-supera 3,5× o cualquiera deja de ser jugable.
+puede empujarlo a él o a sus vecinos al conducto. Con la escala de puntos actual
+las dos rutas valen casi lo mismo de media (1,11×) y lo que las separa es la
+**varianza**: la codiciosa firma el jackpot en 20 de 60 partidas pero se va a cero
+en 23, y la conservadora casi nunca falla pero rara vez despega. Eso es mejor
+trade-off que el anterior, donde el King a 50× el premio común hacía que ir a por
+él fuese además lo más rentable. `simtest` falla si la brecha supera 3,5× o
+cualquiera deja de ser jugable.
 
 La primera tirada de una partida nunca sufre resbalón. Es una ayuda invisible que
 enseña el bucle y evita una primera impresión injusta.
@@ -182,10 +219,43 @@ Se tira una sola vez con el PRNG sembrado y, si sale, el instante se fija entre 
 35 % y el 80 % de la subida. Al dispararse se rompe la soldadura y el peluche cae
 **con velocidad real** sobre el montón, que colisiona y reacciona.
 
-Los dos números aleatorios se consumen siempre, gane o pierda el sorteo, para que
-el flujo del PRNG no dependa del resultado.
+Los tres números aleatorios de `resolveGrab` —dos de resbalón y uno de enganche—
+se consumen siempre, gane o pierda cada sorteo, para que el flujo del PRNG no
+dependa del resultado.
 
-### 5.6 El conducto
+### 5.6 Enganche: el doblete
+
+Con probabilidad `HOOK_CHANCE` (0,12) el vecino **más pegado** al premio agarrado
+se queda prendido de sus pezuñas y sube con él, valiendo dos premios en una sola
+tirada. Se elige el más cercano y no uno al azar para que la jugada se lea: el que
+estaba encima es el que sube. Como no siempre hay vecino dentro de `HOOK_R`, la
+frecuencia real medida es del **7,5 % de los agarres**.
+
+El enganchado cuelga en la **misma columna** que el agarrado, no a su lado: la boca
+sólo mide `MOUTH_R` de radio, así que un enganche lateral se quedaría en el borde y
+el doblete no llegaría a cobrarse nunca. Su muelle es más blando que el del
+agarrado, de modo que llega arrastrándose y se balancea un paso por detrás, y su
+objetivo nunca baja del relieve: con la garra abajo va rozando el montón en vez de
+hundirse en él, y sólo despega cuando el agarrado sube.
+
+Dos detalles no son estéticos y se pagaron con medidas:
+
+- **`HOOK_Y` = 1,2, no 0,9.** La cabeza del de abajo cuelga a `HEAD_X` del eje, así
+  que con el par demasiado junto esa cabeza se solapa con el *torso* del de arriba
+  y el empuje resultante es casi horizontal: los dos salen despedidos fuera del
+  agujero. La separación mínima limpia es
+  `hypot(HEAD_X, YSQUASH·(HOOK_Y − HEAD_Y)) ≥ R_BODY + R_HEAD`, que da 1,07.
+  Con 0,9 el doblete se cobraba el 30 % de las veces; con 1,2, el **91 %**.
+- **Los dos se sueltan a la vez.** En caída libre la distancia entre ellos se
+  conserva, así que el par cae en columna sin tocarse. Escalonar la suelta es justo
+  lo que lo rompe: el enganchado se queda quieto haciendo de obstáculo y desvía al
+  agarrado fuera de la boca. Medido: 18 % de dobletes escalonando contra 91 %
+  soltando a la vez.
+
+Si el agarrado resbala durante la subida, caen los dos. El doblete se cobra entero
+o no se cobra.
+
+### 5.7 El conducto
 
 El conducto es una abertura física real. Un premio sobre la boca conserva todas
 sus colisiones mientras desciende: puede atascarse, ser desviado fuera o empujar
@@ -199,7 +269,7 @@ El hueco visual del suelo se deriva de las mismas constantes que la boca lógica
 así que no pueden desincronizarse. El suelo de la bandeja son dos losas, no una,
 y lo que dejan entre ellas *es* el conducto.
 
-### 5.7 Determinismo
+### 5.8 Determinismo
 
 PRNG xorshift32 sembrado por partida. Con el paso fijo, la misma semilla y las
 mismas entradas en los mismos instantes de simulación producen exactamente la
@@ -218,19 +288,82 @@ TITLE → AIM → LOWER → CLOSE → PAUSE → LIFT → CARRY → DROP → RETU
 Duraciones: bajar 0,85 s; cerrar 0,45 s; pausa 0,18 s; subir 1,15 s; transportar
 0,9 s; soltar 1,4 s; volver 0,9 s; asentar 0,35 s.
 
+`SETTLE` no cierra mientras quede un premio en `state = 3`: el resultado no se
+dibuja hasta que la puntuación es definitiva.
+
 La simulación no toca DOM ni audio: encola eventos (`EV_GRAB`, `EV_SLIP`,
-`EV_WIN`…) que `main.ts` consume. Render, HUD y sonido no deciden nada.
+`EV_HOOK`, `EV_WIN`…) que `main.ts` consume. Render, HUD y sonido no deciden nada.
 
 ## 7. Controles y cámara
+
+### 7.1 Teclado
 
 - Flechas y WASD: movimiento X/Z, con aceleración y fricción.
 - Espacio/Enter: empezar, soltar gancho, continuar desde resultados.
 - R: reiniciar en resultados. M: mute.
 
+### 7.2 Alcance del carro
+
 El carro se mueve dentro de `AIM_X/AIM_Z`, que cubren la bandeja: no se puede
 apuntar a suelo vacío donde nunca hay nada que coger.
 
-Cámara en tres cuartos, orbitable con el ratón (yaw ±55°, pitch 4–34°), FOV 30°.
+### 7.3 Cámara
+
+Cámara en tres cuartos, orbitable arrastrando sobre el canvas (yaw ±55°,
+pitch 4–34°), FOV 30°.
+
+### 7.4 Táctil
+
+Implementado con **Pointer Events** únicamente: un solo camino de código sirve a
+ratón, lápiz y dedo, y no hay listeners `touch*` duplicados que costarían bytes y
+divergirían en comportamiento.
+
+- **Joystick virtual** (`#stick`): analógico, no digital. Se normaliza por el
+  radio del control, aplica una zona muerta del 12 % y reescala el resto a 0…1,
+  de modo que el táctil hereda la misma aceleración y fricción que el teclado en
+  vez de sentirse como un interruptor.
+- **Botón de agarre** (`#grab`): responde en `pointerdown`, no en `click`, para no
+  heredar el retardo de la detección de doble toque. Muestra los intentos
+  restantes, así que en móvil hace de HUD además de botón.
+- **Mute** (`#mute`): equivalente táctil de `M`.
+- **Cámara**: arrastre sobre el canvas, que lleva `touch-action:none` para que el
+  navegador no robe el gesto como scroll o pinch.
+
+**Multitáctil real.** Cada control captura su propio `pointerId` con
+`setPointerCapture` y lo suelta en `pointerup`, `pointercancel` y
+`lostpointercapture`. Por eso se puede mover el carro con el pulgar izquierdo y
+soltar el gancho con el derecho en el mismo instante, que es la postura natural.
+Soltar en los tres eventos —no sólo en `pointerup`— es lo que evita el joystick
+"pegado" cuando el sistema cancela el toque (una llamada entrante, el gesto de
+volver atrás).
+
+El teclado tiene prioridad sobre el táctil (`sim.inX = keyX || touchX`). Sólo
+importa en híbridos con pantalla táctil y teclado, y allí la precedencia correcta
+es la del teclado.
+
+Las teclas siguen siendo la única forma de leer las instrucciones: el HUD
+`#instructions` se oculta en punteros gruesos porque los controles en pantalla
+son autoexplicativos y el espacio vertical no da para ambos.
+
+### 7.5 Layout adaptativo
+
+Dos capas de CSS independientes, porque pantalla pequeña y dedo no son lo mismo:
+
+- `@media(max-width:800px)` — problema de **espacio**: compacta marcadores y
+  rótulo, oculta instrucciones y adelgaza el deck.
+- `@media(any-pointer:coarse)` — problema de **precisión**: el joystick decorativo
+  del deck pasa a ser un pad fijo de 104 px abajo a la izquierda, `#grab` sube a
+  88 px abajo a la derecha y `#mute` a 48 px. Todos anclados con
+  `env(safe-area-inset-bottom)` para no quedar bajo el notch o la barra de gestos.
+- La combinación `coarse` + `max-width:600px` además oculta la tabla de valores,
+  que es informativa y no operativa.
+
+**Pendiente.** Los textos de overlay dicen "PRESS SPACE" y "SPACE / R TO PLAY
+AGAIN". El toque funciona —`#grab` llama a `fire()`, que resuelve los tres
+estados—, pero el texto no lo dice. Corregirlo es un cambio de copia, no de
+lógica.
+
+### 7.6 Nota sobre `gl.viewport`
 
 **W no llama nunca a `gl.viewport`** y sólo rehace la matriz de proyección cuando
 se le pasa `fov`. Redimensionar la ventana dejaba la escena estirada y recortada.
@@ -241,10 +374,12 @@ cámara según el aspecto.
 
 Todo se compone con `cube`, `sphere` y `pyramid` de W:
 
-- Premios: el Unicorn Cloud es redondo y mullido; el Rainbow Item forma un arco
-  de cuatro bandas con nubes; la Star tiene cinco puntas acolchadas; y el Unicorn
-  King combina cuerpo dorado, corona, cuerno largo y detalles reales. Todos
-  comparten la misma envolvente física de dos esferas para conservar el balance.
+- Premios, de menor a mayor valor: la Star tiene cinco puntas acolchadas; el
+  Rainbow Item forma un arco de cuatro bandas con nubes; el Unicorn es redondo y
+  mullido; y el Unicorn King combina cuerpo dorado, corona, cuerno largo y
+  detalles reales. Los dos escalones altos son unicornios, que es lo que hace
+  legible la escala de un vistazo. Todos comparten la misma envolvente física de
+  dos esferas para conservar el balance.
 - Máquina: suelo, techo, cuatro postes, paneles y la bandeja de premios, cuyos
   cuatro bordes son exactamente los muros de la simulación.
 - Gancho: carro, cable, núcleo y tres dedos prismáticos que rotan al cerrar.
@@ -258,15 +393,21 @@ dorado `#ffc83d`, cyan `#55ddeb`, violeta `#9b65e6`.
 
 ## 9. UI, feedback y audio
 
-HUD mínimo DOM: puntuación a la izquierda, cinco créditos a la derecha, tabla de
-valores y texto central para título/resultados.
+HUD DOM: intentos a la izquierda, rótulo de la máquina al centro, puntuación a la
+derecha, deck inferior con joystick, tabla de valores y botón de agarre, más el
+texto central de título/resultados. Todo el HUD es `pointer-events:none` salvo los
+controles que sí deben recibir toques, para que arrastrar sobre el canvas para
+girar la cámara funcione también sobre las zonas cubiertas por el HUD.
 
 Feedback implementado: retícula bajo el gancho **sólo durante AIM**; pausa antes
 de subir; arco de 10 chispas animadas al anotar; número `+puntos`; aviso de
-`SLIPPED!` distinto del de `MISSED!`.
+`SLIPPED!` distinto del de `MISSED!`; y `DOUBLE!` al enganchar. Este último se
+anuncia **al agarrar, no al cobrar**: el jugador tiene que saber por qué suben dos
+peluches antes de verlos caer, o el doblete parece un accidente del motor.
 
 Audio con un único `AudioContext` y osciladores, creado tras el primer gesto.
-Eventos: inicio, motor al bajar, cierre, agarre, resbalón, premio y final.
+Eventos: inicio, motor al bajar, cierre, agarre, enganche, resbalón, premio y
+final.
 
 ## 10. Arquitectura de código
 
@@ -291,26 +432,30 @@ No hay ECS ni clases: 13 premios y un gancho. Objetos planos y funciones.
 
 - TypeScript como lenguaje fuente; el navegador recibe JavaScript.
 - **W 1.0.2 full**, framework WebGL2 de dominio público.
-- APIs nativas: DOM, `requestAnimationFrame`, WebAudio y Keyboard Events.
+- APIs nativas: DOM, `requestAnimationFrame`, WebAudio, Keyboard Events y
+  **Pointer Events** (con captura de puntero para el multitáctil).
 - Tooling: Vite (dev), esbuild, Terser, Roadroller, fflate. Ninguno llega al
   navegador final.
 
 ## 12. Presupuesto de bytes
 
-Medición real tras implementar las físicas:
+Medición real, con físicas, táctil y presentación actuales:
 
 ```text
-build/game.zip: 9.700 / 13.312 bytes aprox.  (~3.600 libres)
+build/index.html: 18.709 bytes
+build/game.zip:   11.794 / 13.312 bytes  (1.518 libres)
 ```
 
-Las físicas completas costaron algo más de 1.400 bytes ZIP sobre la versión
-anterior, dentro de un presupuesto que tenía 5.065 libres.
+Las físicas completas costaron algo más de 1.400 bytes ZIP sobre la versión sin
+ellas. El resto del gasto desde entonces es presentación —HUD de recreativa,
+premios más detallados, shader— más el táctil.
 
 Gates: cada feature se evalúa por `git diff` + diferencia de `build/game.zip`.
 Nunca medir gzip suelto como sustituto del ZIP.
 
-Reserva restante prevista para: controles táctiles (≤ 800 B), más juice y
-correcciones de última hora.
+Reserva restante prevista para: juice y correcciones de última hora. Con 1.518
+bytes el margen ya es estrecho; cualquier añadido grande obliga a recortar por el
+orden de §15.4.
 
 ## 13. Verificación
 
@@ -331,11 +476,24 @@ correcciones de última hora.
 Manual: girar la cámara por debajo y por los lados para confirmar que nada flota
 ni se hunde, y redimensionar la ventana a media partida.
 
+Manual táctil, que `simtest` no puede cubrir porque no hay DOM:
+
+- partida completa en un móvil real, sin teclado, incluido el reinicio;
+- pulgar en el joystick y pulgar en `#grab` a la vez, comprobando que ninguno
+  cancela al otro;
+- soltar el dedo fuera de la ventana y bloquear la pantalla a media tirada: el
+  carro debe pararse, no quedarse "pegado" a la última dirección;
+- rotación a horizontal y vuelta a vertical con la partida en curso;
+- un dispositivo con notch o barra de gestos, para verificar los `safe-area`.
+
 ## 14. Criterios de aceptación
 
 - `npm run check` termina sin errores y genera un ZIP ≤ 13.312 bytes.
 - El ZIP contiene `index.html` en raíz y funciona sin red ni assets externos.
 - Una partida completa puede jugarse sólo con teclado y reiniciarse sin recargar.
+- **Una partida completa puede jugarse sólo con el dedo**, en vertical, y
+  reiniciarse sin recargar. Ningún control queda bajo el notch ni la barra de
+  gestos, y el joystick nunca se queda pegado.
 - Hay exactamente 13 premios y cinco intentos al comenzar.
 - **El juego se comporta igual a 30, 60, 144 y 240 Hz.**
 - Mismas semilla e inputs producen mismos agarres y resbalones.
@@ -352,10 +510,15 @@ ni se hunde, y redimensionar la ventana a media partida.
    batching nuevo. El coste de física es despreciable frente al de render.
 3. **El agarre parece arbitrario.** Aumentar la retícula y la legibilidad de la
    exposición. No tocar `REQUIRED` sin volver a correr `simtest`: el acantilado
-   del Unicorn King es estrecho.
-4. **Falta espacio.** Recortar en este orden: touch, música, corona compleja,
-   partículas secundarias, texto extra. Nunca recortar el feedback de cierre,
-   subida y premio.
+   del Unicorn King es estrecho —entre 0,865 y 0,82 la tasa de agarre pasa de
+   5 % a 18 %— y la métrica que hay que mirar es la tolerancia con ruido de
+   apuntado, no el tiro perfecto, que casi siempre entra.
+4. **Falta espacio.** Recortar en este orden: música, corona compleja, partículas
+   secundarias, texto extra, tabla de valores del deck. **El táctil ya no está en
+   la lista de recortes**: era el primer candidato en la versión anterior de este
+   documento, pero es lo que hace jugable el juego para una parte del jurado y
+   cuesta muy poco —el grueso es CSS de media queries, que comprime bien. Nunca
+   recortar el feedback de cierre, subida y premio.
 5. **Regresión silenciosa de físicas.** El riesgo real ya no es el tamaño sino
    reintroducir un impulso por proyección. La regla de §5.2 es innegociable:
    nada fuera de `push` toca la posición.

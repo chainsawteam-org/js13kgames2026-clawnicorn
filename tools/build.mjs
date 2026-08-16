@@ -24,7 +24,7 @@ const result = await build({
 });
 
 const app = new TextDecoder().decode(result.outputFiles[0].contents);
-const mangledProperties = { regex: /^(toys|phase|time|score|tries|clawX|clawY|clawZ|close|dropY|fromX|fromZ|vx|vz|held|won|firstThrow|inX|inZ|events|rarity|state|sleep|slipAt|shape|yaw|roll|ox|oy|oz|oyaw|nx|ny|nz|resize|setShape|moveCamera|moveClaw|moveReticle|movePrize|hidePrize|celebrate|hideSparks|models|current|next|textures|program|clearColor|projection|setState|ambientLight|lastFrame|render|animation|lerp|dist|ambient|col|add|smooth|vertices|indices|normals|verticesBuffer|indicesBuffer|normalsBuffer|uvBuffer|customNormals|mix|mode|size)$/ };
+const mangledProperties = { regex: /^(toys|phase|time|score|tries|clawX|clawY|clawZ|close|dropY|fromX|fromZ|vx|vz|held|won|firstThrow|inX|inZ|events|rarity|state|sleep|slipAt|shape|mx|mz|yaw|roll|ox|oy|oz|oyaw|nx|ny|nz|resize|setShape|moveCamera|moveClaw|moveReticle|movePrize|hidePrize|celebrate|hideSparks|models|current|next|textures|program|clearColor|projection|setState|ambientLight|lastFrame|render|animation|lerp|dist|ambient|col|add|smooth|vertices|indices|normals|verticesBuffer|indicesBuffer|normalsBuffer|uvBuffer|customNormals|mix|mode|size)$/ };
 const terserOptions = [
   { compress: { passes: 3, unsafe: true }, mangle: { properties: mangledProperties } },
   {
@@ -37,7 +37,7 @@ const terserOptions = [
 const selectorNames = [
   "game", "hud", "top", "tries", "score", "instructions", "deck", "stick", "values", "grab",
   "message", "sub", "toast", "mute", "meter", "attempts", "star", "marquee", "spark", "rainbow",
-  "combo", "joystick", "cloud", "rainbow-prize", "star-prize", "king", "overlay", "start-card",
+  "combo", "joystick", "unicorn", "rainbow-prize", "star-prize", "king", "overlay", "start-card",
   "hidden", "show"
 ];
 const selectorMap = new Map(selectorNames.map((name, i) => [name, (i < 26 ? "abcdefghijklmnopqrstuvwxyz" : "ABCDEFGHIJKLMNOPQRSTUVWXYZ")[i % 26]]));
@@ -84,7 +84,7 @@ const pack = async (code) => {
 };
 
 const htmlStart = `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>UNICORN CLAW</title><style>${css}</style>` + shrinkMarkup(
-  `<canvas id=game></canvas><main id=hud><header id=top><section class="meter attempts"><small>ATTEMPTS</small><strong><span class=star>★</span><span id=tries></span></strong></section><div class=marquee><span class=spark>★</span><h1>UNICORN CLAW</h1><div class=rainbow><i></i><i></i><i></i></div></div><section class="meter score"><small>SCORE</small><strong id=score></strong></section></header><aside id=instructions><b>HOW TO PLAY</b><span><kbd class=combo>WASD / ARROWS</kbd><strong>MOVE</strong></span><span><kbd class=combo>CLICK + DRAG</kbd><strong>LOOK</strong></span><span><kbd class=combo>SPACE</kbd><strong>GRAB</strong></span></aside><section id=deck><div class=joystick id=stick><i></i></div><aside id=values><span><i class=cloud></i><b>CLOUD</b><strong>100</strong></span><span><i class=rainbow-prize></i><b>RAINBOW</b><strong>200</strong></span><span><i class=star-prize>★</i><b>STAR</b><strong>500</strong></span><span><i class=king></i><b>KING</b><strong>5.000</strong></span></aside><button id=grab></button></section><div class=overlay><div class=start-card><small>STEP RIGHT UP</small><div id=message></div><p id=sub></p><span>PRESS SPACE</span></div></div><div id=toast></div><button id=mute>♪</button></main><script>`
+  `<canvas id=game></canvas><main id=hud><header id=top><section class="meter attempts"><small>ATTEMPTS</small><strong><span class=star>★</span><span id=tries></span></strong></section><div class=marquee><span class=spark>★</span><h1>UNICORN CLAW</h1><div class=rainbow><i></i><i></i><i></i></div></div><section class="meter score"><small>SCORE</small><strong id=score></strong></section></header><aside id=instructions><b>HOW TO PLAY</b><span><kbd class=combo>WASD / ARROWS</kbd><strong>MOVE</strong></span><span><kbd class=combo>CLICK + DRAG</kbd><strong>LOOK</strong></span><span><kbd class=combo>SPACE</kbd><strong>GRAB</strong></span></aside><section id=deck><div class=joystick id=stick><i></i></div><aside id=values><span><i class=star-prize>★</i><b>STAR</b><strong>250</strong></span><span><i class=rainbow-prize></i><b>RAINBOW</b><strong>500</strong></span><span><i class=unicorn></i><b>UNICORN</b><strong>1.000</strong></span><span><i class=king></i><b>KING</b><strong>5.000</strong></span></aside><button id=grab></button></section><div class=overlay><div class=start-card><small>STEP RIGHT UP</small><div id=message></div><p id=sub></p><span>PRESS SPACE</span></div></div><div id=toast></div><button id=mute>♪</button></main><script>`
 );
 const makeHtml = code => htmlStart + code + "</script>";
 

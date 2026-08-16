@@ -1,10 +1,10 @@
 import { createScene } from "./render/scene";
 import {
   H, createSim, reset, step, beginDrop, beginGame,
-  POINTS, MOUTH_X, MOUTH_Z, FLOOR,
+  POINTS, FLOOR,
   surface,
   P_TITLE, P_AIM, P_RESULT,
-  EV_LOWER, EV_CLOSE, EV_GRAB, EV_EMPTY, EV_SLIP, EV_WIN, EV_OVER
+  EV_LOWER, EV_CLOSE, EV_GRAB, EV_EMPTY, EV_SLIP, EV_HOOK, EV_WIN, EV_OVER
 } from "./game/sim";
 
 const $ = <T extends Element>(sel: string) => document.querySelector<T>(sel)!;
@@ -104,21 +104,24 @@ function handleEvents() {
     if (e === EV_LOWER) { toastT = 0; toast.classList.remove("show"); tone(170, .25, "sawtooth"); }
     else if (e === EV_CLOSE) tone(95, .16, "square");
     else if (e === EV_GRAB) tone(330, .1, "triangle", .06);
-    else if (e === EV_SLIP) { tone(140, .3, "sawtooth"); showToast("SLIPPED!"); }
+    // El enganche se anuncia al agarrar, no al cobrar: el jugador tiene que ver
+    // por qué suben dos peluches antes de que caigan.
+    else if (e === EV_HOOK) { showToast("DOUBLE!", 1.2); tone(520, .22, "triangle", .08); }
+    else if (e === EV_SLIP) tone(140, .3, "sawtooth");
     else if (e >= EV_WIN) {
       const r = e - EV_WIN;
       showToast(`+${POINTS[r]}`, .9);
-      sparkT = 0; sparkX = MOUTH_X; sparkY = FLOOR + .5; sparkZ = MOUTH_Z;
+      sparkT = 0; sparkX = sim.mx; sparkY = FLOOR + .5; sparkZ = sim.mz;
       tone(r > 2 ? 880 : 620, .4, "triangle");
     }
-    else if (e === EV_EMPTY && sim.phase !== P_RESULT && !sim.won) {
-      if (sim.phase === P_AIM) showToast("MISSED!");
-    }
+    else if (e === EV_EMPTY && !sim.won) showToast("MISSED!");
     else if (e === EV_OVER) {
-      message.textContent = sim.score >= 5000 ? "JACKPOT!" : sim.score >= 1000 ? "GREAT HAUL!" : "GAME OVER";
+      // Los umbrales siguen a la tabla de puntos: JACKPOT sólo si ha caído un King,
+      // GREAT HAUL a partir de un Unicorn más algo de resto.
+      message.textContent = sim.score >= 5000 ? "JACKPOT!" : sim.score >= 2000 ? "GREAT HAUL!" : "GAME OVER";
       sub.textContent = `${sim.score} POINTS  •  SPACE / R TO PLAY AGAIN`;
       overlay.classList.remove("hidden");
-      tone(sim.score >= 1000 ? 660 : 180, .5, "triangle");
+      tone(sim.score >= 2000 ? 660 : 180, .5, "triangle");
     }
   }
   sim.events.length = 0;
