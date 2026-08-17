@@ -21,13 +21,20 @@ export const FLOOR = -3.225;
 // Límites jugables del montón; la plataforma visible se prolonga algo más allá
 // para llenar el mueble sin alterar el balance de colisiones.
 //
-// La bandeja es una sola para todas las formas, y no por comodidad: con la
-// bandeja pequeña del juego original (3,1 · 1,75) los trece peluches quedan tan
-// apretados que la propia presión del montón los escupe al embudo. Medido, con la
-// boca en las treinta posiciones que caben y sin tocar el mando: entre 2.000 y
-// 16.000 puntos en seis partidas, cuando el listón son 1.875. El embudo y el
-// caballón están calibrados para ESTA superficie; estrecharla vuelve a abrir la
-// fuga que el caballón vino a cerrar.
+// La bandeja es una sola para todas las formas, y eso no es comodidad: se probó a
+// darle a cada forma la suya para poder ofrecer la máquina pequeña del juego
+// original (3,1 · 1,75) y el resultado es que se vacía sola. Trece peluches en esa
+// superficie quedan tan apretados que la presión del propio montón los escurre al
+// embudo, la fuga exacta que el caballón vino a cerrar. Medido sin tocar el mando,
+// con el montón escalado a la bandeja y la boca en las treinta posiciones que
+// caben en ella: entre 2.000 y 16.000 puntos en seis partidas, con el listón en
+// 1.875. Ninguna posición de boca lo arregla porque el problema es la densidad.
+//
+// Barriendo el tamaño entero, lo que no se puede estrechar es la PROFUNDIDAD: con
+// 1,75 fuga siempre (3.250 pts incluso a lo ancho de 3,7) y sólo deja de fugar a
+// partir de 1,85. A lo ancho sí hay margen —3,1 · 2,1 se queda en 1.250—, así que
+// una máquina más estrecha pero igual de honda sí sería viable; una más pequeña en
+// los dos ejes, no.
 export const X0 = -3.7, X1 = 3.7, Z0 = -2.1, Z1 = 2.1;
 export const MOUTH_R = .7;
 // Embudo. La boca no es un agujero de paredes rectas abierto en un suelo plano
