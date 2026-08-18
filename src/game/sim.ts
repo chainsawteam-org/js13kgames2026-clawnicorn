@@ -16,13 +16,31 @@ const DUR = [0, 0, .85, .45, .18, 1.15, .9, 1.4, .9, .35, 0];
 
 // Eventos que consume main.ts para audio y HUD. La simulación no toca nada externo.
 export const EV_LOWER = 0, EV_CLOSE = 1, EV_GRAB = 2, EV_EMPTY = 3,
-  EV_SLIP = 4, EV_HOOK = 5, EV_SETTLE = 6, EV_OVER = 7, EV_WIN = 8;
+  EV_SLIP = 4, EV_HOOK = 5, EV_OVER = 6, EV_WIN = 7;
+
+// EV_WIN abre un rango propio y empaquetado: los dos bits bajos son la rareza y
+// los altos el escalón de combo con el que se cobró. Va en el evento y no en el
+// estado porque main.ts los consume EN LOTE al final del frame, cuando `s.combo`
+// ya puede haber avanzado; así dos premios que caen en el mismo paso conservan
+// cada uno su valor. El decodificador vive aquí, al lado del que lo codifica.
+export const winRarity = (e: number) => (e - EV_WIN) & 3;
+export const winMult = (e: number) => comboMult((e - EV_WIN) >> 2);
 
 // Escalera de valor por rareza: Star (6 en el montón) < Rainbow (3) < Unicorn (2)
 // < Unicorn King (2). El índice de rareza ordena a la vez cuántos hay, lo difícil
 // que es agarrarlo y lo que paga, así que la decisión del jugador es siempre la
 // misma pregunta: ¿cuánto riesgo por cuánto premio?
 export const POINTS = [250, 500, 1000, 2000];
+
+// Combo: dentro de UNA tirada, cada premio que entra después del primero vale el
+// doble que el anterior (x1, x2, x4, x8...). El contador es el número de premios
+// ya cobrados en la tirada, así que el multiplicador del siguiente es 1 << combo.
+// El techo existe sólo como red: el montón tiene 13 peluches y un derrumbe puede
+// colarlos casi todos, de modo que sin tope una sola tirada afortunada valdría más
+// que cualquier partida jugada bien. Con x32 el doblete y el triplete —que es lo
+// que la mecánica quiere premiar— siguen intactos.
+export const COMBO_MAX = 5;
+export const comboMult = (n: number) => 1 << (n < COMBO_MAX ? n : COMBO_MAX);
 const DIFF = [.15, .25, .40, .70];
 // Agarre mínimo por rareza. Tabla explícita en vez de fórmula: es el mando de
 // balance más sensible del juego y conviene poder moverlo de uno en uno.
@@ -80,6 +98,13 @@ const PLUG_R = Math.max(MOUTH_R + R_BODY, FUNNEL_R + RIM_W);
 export const FEET = .75;                         // del centro del torso a las pezuñas
 
 const GRAV = 15, DRAG = .9965, YSQUASH = 1.2, TORQUE = 22, SPIN_MAX = 4;
+// Radio de descarte previo para el par premio-premio. Una esfera se aleja del
+// centro de su peluche como mucho hypot(HEAD_X, HEAD_Y), y dos cuerpos suman
+// 2·R_BODY de radio, así que por encima de esa suma NINGUNA de las cuatro
+// parejas puede tocarse. Es una cota superior y el test real amplifica la Y con
+// YSQUASH (que sólo aleja), de modo que saltarse el par no cambia un solo bit:
+// es velocidad, no una aproximación.
+const BROAD_R2 = (2 * Math.hypot(HEAD_X, HEAD_Y) + 2 * R_BODY) ** 2;
 const MAX_PUSH = .18;                            // tope duro: ninguna corrección puede catapultar nada
 const SLEEP_EPS = 2e-7, SLEEP_FRAMES = 12;
 
@@ -182,7 +207,7 @@ export function createSim() {
   return {
     toys: [] as Toy[],
     phase: P_TITLE, time: 0,
-    score: 0, tries: 5,
+    score: 0, tries: 5, combo: 0,
     clawX: 0, clawY: CLAW_TOP, clawZ: 0, close: 0,
     dropY: CLAW_BOTTOM,
     vx: 0, vz: 0, fromX: 0, fromZ: 0,
@@ -204,7 +229,7 @@ export function reset(s: Sim, gameSeed: number) {
   // están "cerca del agujero", que es media personalidad de la forma.
   s.mx = SHAPES[s.shape]![0]!; s.mz = SHAPES[s.shape]![1]!;
   setSeed(gameSeed);
-  s.score = 0; s.tries = 5; s.phase = P_TITLE; s.time = 0;
+  s.score = 0; s.tries = 5; s.combo = 0; s.phase = P_TITLE; s.time = 0;
   s.clawX = s.clawZ = s.vx = s.vz = 0; s.clawY = CLAW_TOP; s.close = 0;
   s.held = -1; s.hook = -1; s.won = false; s.firstThrow = true; s.events.length = 0;
 
@@ -266,8 +291,19 @@ export function reset(s: Sim, gameSeed: number) {
     integrate(s); constrain(s, false);
     for (const p of s.toys) if (p.state) relaunch(p);
   }
-  s.score = 0; s.events.length = 0;
-  for (const p of s.toys) { p.sleep = SLEEP_FRAMES; }
+  // El asentado deja caer premios por la boca en su segunda y tercera fase, y
+  // eso pasa por `win`: hay que borrar también el combo, o la partida empezaría
+  // con el multiplicador ya subido.
+  s.score = 0; s.combo = 0; s.events.length = 0;
+  // Aquí se dormía a TODO el montón de golpe para que no derivase durante el
+  // título. Ya no: un peluche dormido no se integra, así que al que le tocaba el
+  // reparto con los pies en el aire —el último relanzado, o cualquiera que un
+  // empujón acabara de lanzar hacia arriba— se quedaba flotando sobre el montón
+  // hasta que un vecino lo despertase. Se deja que `constrain` reparta el sueño
+  // como en cualquier otro paso: el que está apoyado se duerme solo en doce pasos
+  // y el que sigue en el aire termina su caída. Y no hacía falta para nada más:
+  // medido, la fuga por esperar sin jugar se queda igual, en 250 puntos contra un
+  // listón de 1.250, porque quien la cierra es el caballón y no esta línea.
 }
 
 // ---------------------------------------------------------------- integración
@@ -377,7 +413,15 @@ function constrain(s: Sim, clawOn: boolean, loading = false) {
     // pose con la garra mediante el muelle; seguir proyectándolo contra las
     // patas lo expulsaría lateralmente en cada paso.
     for (const p of toys) if (p !== hooked && (!p.state || p.state === 1 && s.phase <= P_PAUSE)) {
+      // DOS pasadas a propósito: la primera cuenta apoyos sobre la pose intacta,
+      // porque la segunda va moviendo al premio y cada cápsula vería una postura
+      // distinta de la anterior. El recuento es un mando de balance (`contacts >
+      // p.rarity` decide el acuñado), así que tiene que ser estable.
       const contacts = clawSolve(s, p, false);
+      // s.vx hace DOBLE OFICIO: en P_AIM es la velocidad del carro y aquí, con la
+      // garra abajo, la bandera de \"el cierre ha chocado\" que congela `close` en
+      // `advance`. No se pisan porque `beginDrop` y la vuelta a P_AIM la ponen a
+      // cero, pero cualquier uso nuevo de s.vx tiene que contar con esto.
       if (s.close > .2 && contacts) s.vx = 1;
       if (!p.state && s.phase === P_CLOSE && contacts > p.rarity) p.slipAt = -2;
       clawSolve(s, p, true);
@@ -412,6 +456,8 @@ function constrain(s: Sim, clawOn: boolean, loading = false) {
       const ahx = headX(a), ahz = headZ(a);
       for (let j = i + 1; j < toys.length; j++) {
         const b = toys[j]!; if (b.state >= 2) continue;
+        const cdx = b.x - a.x, cdy = b.y - a.y, cdz = b.z - a.z;
+        if (cdx * cdx + cdy * cdy + cdz * cdz > BROAD_R2) continue;   // ver BROAD_R2
         const bhx = headX(b), bhz = headZ(b);
         // El agarrado es masa infinita: el montón no puede arrancarlo del claw.
         const wa = a.state === 1 ? 0 : 1, wb = b.state === 1 ? 0 : 1;
@@ -531,12 +577,15 @@ function win(s: Sim, i: number) {
   const p = s.toys[i]!;
   p.state = 2;
   s.won = true;
-  s.score += POINTS[p.rarity]!;
+  // El escalón se lee ANTES de subirlo: el primer premio de la tirada cobra x1 y
+  // es el segundo el que ya vale el doble. El combo no distingue cómo entró el
+  // premio —garra, enganche o derrumbe—, sólo que cayó dentro de la misma tirada,
+  // que es lo que convierte un buen tiro sobre el montón en una jugada grande.
+  s.score += POINTS[p.rarity]! * comboMult(s.combo);
+  s.events.push(EV_WIN + p.rarity + s.combo * 4);
+  s.combo++;
   if (s.held === i) s.held = -1;
   if (s.hook === i) s.hook = -1;
-  // EV_WIN ocupa un rango propio: la rareza viaja en el evento para que dos
-  // premios que caigan en el mismo frame conserven su valor individual.
-  s.events.push(EV_WIN + p.rarity);
 }
 
 // Sacudida del vecindario cuando un peluche es arrancado del montón. Ver
@@ -686,13 +735,15 @@ function advance(s: Sim) {
     const e = ease(t);
     s.clawX = s.fromX + (s.mx - s.fromX) * e;
     s.clawZ = s.fromZ + (s.mz - s.fromZ) * e;
-    if (t >= 1) goto(s, P_DROP);
+    if (t >= 1) {
+      // El fallo se anuncia al llegar a la boca, que es cuando el jugador ve que
+      // los dedos se abren sin nada dentro. Un premio acuñado entre las patas
+      // viaja sin agarre oficial y puede acabar entrando, así que con uno a bordo
+      // no hay fallo que anunciar: si no, sale "MISSED!" y detrás "+250".
+      if (s.held < 0 && !s.toys.some(p => p.slipAt === -2)) s.events.push(EV_EMPTY);
+      goto(s, P_DROP);
+    }
   } else if (phase === P_DROP) {
-    // El fallo se anuncia al abrirse los dedos sobre la boca, que es cuando el
-    // jugador ve que no cae nada. Al final del ciclo llegaba tarde, con la garra
-    // ya de vuelta arriba. Sólo el primer paso de la fase: `close` no sirve de
-    // disparador porque se queda congelado si el cierre chocó con un premio.
-    if (s.held < 0 && s.time <= H) s.events.push(EV_EMPTY);
     s.close *= .9;
     if (s.close < .72) release(s, false);
     // Red de seguridad: en P_RETURN el carro se va, así que nadie puede seguir
@@ -710,7 +761,6 @@ function advance(s: Sim) {
     const falling = s.toys.some(p => p.state === 3);
     if (t >= 1 && !falling) {
       s.firstThrow = false;
-      s.events.push(EV_SETTLE);
       if (s.tries <= 0) { goto(s, P_RESULT); s.events.push(EV_OVER); }
       else { goto(s, P_AIM); s.vx = s.vz = 0; }
     }
@@ -741,6 +791,9 @@ export function beginDrop(s: Sim) {
     if (Math.hypot(p.x - s.clawX, p.z - s.clawZ) < 1.1 && p.y > top) top = p.y;
   }
   s.dropY = clamp(top + 1.3, CLAW_BOTTOM, CLAW_TOP - .6);
+  // El combo se reinicia aquí y no al terminar la tirada anterior: entre medias
+  // el montón sigue temblando y lo que se cuele todavía pertenece a esa tirada.
+  s.combo = 0;
   s.won = false; s.vx = s.vz = 0;
   goto(s, P_LOWER); s.events.push(EV_LOWER);
   return true;
@@ -748,6 +801,10 @@ export function beginDrop(s: Sim) {
 
 export function beginGame(s: Sim) {
   if (s.phase !== P_TITLE) return false;
+  // La boca está ABIERTA durante el título —taparla dejaría el montón comprimido
+  // contra ella— así que mientras se lee el cartel puede colarse un premio. Esos
+  // puntos no son del jugador: la partida empieza siempre a cero.
+  s.score = 0; s.combo = 0; s.events.length = 0;
   goto(s, P_AIM);
   return true;
 }

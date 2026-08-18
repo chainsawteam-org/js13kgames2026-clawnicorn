@@ -59,7 +59,8 @@ complejos y **gamepad**.
    captura puede resbalar durante la subida, y de vez en cuando sube **enganchado
    un segundo peluche** que vale un doblete (§5.6).
 5. Si llega arriba, el carro viaja al conducto y suelta el premio, que cae por el
-   agujero de la bandeja y suma puntos.
+   agujero de la bandeja y suma puntos. Todo lo que entre **en esa misma tirada**
+   vale el doble que lo anterior (§4.1).
 6. El montón se reacomoda solo: no hay paso de recolocación artificial.
 7. Tras cinco intentos aparece el resultado y `R`/espacio inicia otra partida. El
    cartel espera a que no quede nada bajando por el conducto: si no, la última
@@ -105,6 +106,31 @@ al 53 %**. El salto de 0,80 a 0,745 es deliberado y está pedido: con 27 % y cin
 tiradas por partida, quien va a por el King lo ve fallar cuatro de cada cinco veces
 y la corona sigue leyendo como imposible. El precio está abajo, en la comparación
 de estrategias, y no es pequeño.
+
+### 4.1 Combo: la tirada es la unidad de puntuación
+
+Dentro de una misma tirada, cada premio que entra en la boca vale **el doble que
+el anterior**: x1, x2, x4, x8… Tres Stars en la misma tirada no son 750 puntos
+sino 250 + 500 + 1.000 = 1.750.
+
+El contador es el número de premios ya cobrados en la tirada y se reinicia en
+`beginDrop`, no al terminar la anterior: entre tirada y tirada el montón sigue
+temblando y lo que se cuele todavía pertenece a la que acaba de jugarse.
+
+El combo **no distingue cómo entró el premio**. Garra, enganche (§5.6) y derrumbe
+valen igual. Es deliberado: lo que la mecánica premia es elegir el tiro que mueve
+el montón entero, no sólo el que agarra limpio, y es lo que le da valor a apuntar
+cerca de la boca aunque el peluche de encima sea barato.
+
+**Techo en x32** (`COMBO_MAX = 5`). El montón tiene 13 peluches y un derrumbe
+puede colar media docena, así que sin tope una sola tirada afortunada valdría más
+que cualquier partida jugada bien y la puntuación dejaría de medir habilidad. El
+doblete y el triplete —que es lo que la mecánica viene a premiar— quedan intactos:
+el tope sólo recorta la cola larga.
+
+El cartel lateral muestra el multiplicador **ya cobrado**, no el que vendría:
+aparece con el segundo premio, que es el primero que dobla, y así nunca promete un
+x2 que quizá no llegue.
 
 ### `grip` no distingue rarezas — toda la dificultad vive en esta tabla
 
@@ -500,16 +526,33 @@ controles que sí deben recibir toques, para que arrastrar sobre el canvas para
 girar la cámara funcione también sobre las zonas cubiertas por el HUD.
 
 Feedback implementado: retícula bajo el gancho **sólo durante AIM**; pausa antes
-de subir; arco de 10 chispas animadas al anotar; número `+puntos`; aviso de
+de subir; arco de 10 chispas animadas al anotar; número `+puntos`; cartel `COMBO`
+en el lateral derecho, simétrico al de instrucciones, que aparece con un rebote al
+subir de escalón y muestra el multiplicador ya cobrado (§4.1); aviso de
 `SLIPPED!` distinto del de `MISSED!`; y `DOUBLE!` al enganchar. Este último se
 anuncia **al agarrar, no al cobrar**: el jugador tiene que saber por qué suben dos
 peluches antes de verlos caer, o el doblete parece un accidente del motor.
 
 Audio con un único `AudioContext` y osciladores, creado tras el primer gesto.
 Eventos: inicio, motor al bajar, cierre, agarre, enganche, resbalón, premio y
-final.
+final. El tono del premio sube una cuarta justa por escalón de combo, hasta dos
+octavas en el tope, para que la cadena se oiga sin mirar el HUD.
+
+`EV_WIN` abre un rango empaquetado: los dos bits bajos son la rareza y los altos el
+escalón de combo. El multiplicador viaja en el evento y no en el estado porque
+`main.ts` los consume **en lote** al final del frame, cuando `s.combo` ya puede
+haber avanzado; así dos premios que caen en el mismo paso conservan cada uno su
+valor.
 
 ## 10. Arquitectura de código
+
+> **Trampa:** `tools/build.mjs` **no lee `index.html`**. Lleva su propia copia del
+> markup, recortada a mano para gastar menos bytes (atributos sin comillas, sin
+> `aria-label`, sin textos que el HUD ya rellena). Todo elemento nuevo hay que
+> añadirlo **en los dos sitios**: si sólo está en `index.html` el juego funciona en
+> `npm run dev` y el ZIP sale roto, porque `main.ts` hace `querySelector(...)!` y
+> revienta en el primer `hud()`. Ya ha pasado: el cartel del combo y, antes, el
+> precio del King, que el markup del build anunciaba a 5.000.
 
 ```text
 src/
@@ -542,20 +585,38 @@ No hay ECS ni clases: 13 premios y un gancho. Objetos planos y funciones.
 Medición real, con físicas, táctil y presentación actuales:
 
 ```text
-build/index.html: 18.709 bytes
-build/game.zip:   11.794 / 13.312 bytes  (1.518 libres)
+build/index.html: 20.361 bytes
+build/game.zip:   12.957–12.981 / 13.312 bytes  (331–355 libres)
 ```
+
+**El tamaño no es determinista.** El optimizador de Roadroller hace una búsqueda
+aleatoria de parámetros, así que dos builds del MISMO código difieren en ±12
+bytes (medido: tres pasadas seguidas dieron 12.957, 12.978 y 12.981). Un ahorro
+por debajo de ~25 bytes no se puede distinguir del ruido con una sola medición:
+para cambios pequeños hay que promediar varias pasadas o comparar con
+`--no-roadroller`, que sí es reproducible.
 
 Las físicas completas costaron algo más de 1.400 bytes ZIP sobre la versión sin
 ellas. El resto del gasto desde entonces es presentación —HUD de recreativa,
 premios más detallados, shader— más el táctil.
 
-Gates: cada feature se evalúa por `git diff` + diferencia de `build/game.zip`.
-Nunca medir gzip suelto como sustituto del ZIP.
+Gates: cada feature se evalúa por `git diff` + diferencia de `build/game.zip`,
+con el aviso de arriba sobre el ruido. Nunca medir gzip suelto como sustituto del
+ZIP.
 
-Reserva restante prevista para: juice y correcciones de última hora. Con 1.518
-bytes el margen ya es estrecho; cualquier añadido grande obliga a recortar por el
-orden de §15.4.
+El combo (§4.1) cuesta unos 275 bytes ZIP: la mecánica en sí son unas pocas
+líneas y casi todo el gasto es el cartel. La primera versión gastaba 464. Lo que
+de verdad se nota, por encima del ruido de medición, es **reutilizar `.meter`**
+—la misma chapa de recreativa que ya visten SCORE y ATTEMPTS— en vez de estrenar
+un panel propio: unos 150 bytes. El resto del recorte son detalles cuyo ahorro
+individual cae dentro del ±12 de Roadroller: sacar el rebote del `@keyframes` y
+dejarlo en la curva de la `cubic-bezier`, que overshootea sola; un `clamp()` de
+ancho que sirve también en móvil y borra la media query; y `class=meter` sin
+comillas, como el resto del markup.
+
+Reserva restante prevista para: juice y correcciones de última hora. Con 304 bytes
+el margen es ya mínimo; cualquier añadido obliga a recortar por el orden de
+§15.4.
 
 ## 13. Verificación
 
@@ -575,6 +636,9 @@ orden de §15.4.
   siendo llano — los tres por cada lado que la bandeja deja probar;
 - **balance**: la escalera de dificultad por rareza y que ninguna estrategia
   domine a la otra;
+- **combo**: tres Stars seguidas en una tirada valen 1.750 y no 750, una tirada
+  nueva devuelve el multiplicador a x1, el tope de x32 muerde a partir del sexto
+  premio y un `reset` no hereda el combo del asentado;
 - **que el montón no se vacíe solo**: cuatro partidas por forma sin tocar el mando
   no pueden valer ni cinco premios baratos. Es el guardián del tirón de la boca y
   del contagio del despertar: los dos son formas de mover el montón sin que el

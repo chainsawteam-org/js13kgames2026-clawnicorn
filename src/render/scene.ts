@@ -36,7 +36,6 @@ export function createScene(canvas: HTMLCanvasElement, toys: Toy[], shape: numbe
     applyCamera(yaw, pitch);
   };
 
-  applyCamera(0, 10);
   W.light({ x: -.45, y: -.8, z: -.4 });
   W.ambient(.5);
 

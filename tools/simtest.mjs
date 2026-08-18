@@ -59,7 +59,7 @@ function play(seed, aim, fps = 60) {
       if (e === S.EV_SLIP) log.slips++;
       if (e === S.EV_HOOK) log.hooks++;
       if (e >= S.EV_WIN) {
-        const rarity = e - S.EV_WIN;
+        const rarity = S.winRarity(e);
         log.wins++; log.byRarity[rarity] = (log.byRarity[rarity] || 0) + 1;
       }
     }
@@ -130,7 +130,24 @@ console.log("\n— asentado inicial —");
     check(`forma ${shape}: 13 premios apoyados`, s.shape === shape && s.toys.length === 13 && !low.length,
       `${low.length} bajo el relieve`);
     check(`forma ${shape}: conducto libre y sin NaN`, !inChute.length && !nan.length && !s.score && s.toys.every(p => p.state === 0));
-    check(`forma ${shape}: el montón queda dormido`, s.toys.every(p => p.sleep > 0));
+    // Un peluche dormido no se integra, así que dormir a uno con los pies en el
+    // aire lo congela ahí hasta que un vecino lo despierte: un premio flotando
+    // sobre el montón, que es como se veía. Aquí se comprobaba `sleep > 0` para
+    // todos, que era una tautología —`reset` los dormía a mano al terminar— y por
+    // eso no veía justo ese caso. Ahora se vigila la invariante de verdad durante
+    // los primeros cinco segundos: nadie duerme sin algo debajo.
+    let ghost = 0;
+    for (let k = 0; k < 600; k++) {
+      for (const p of s.toys) {
+        if (!(p.sleep > 0) || p.state) continue;
+        if (p.y - (S.surface(s.shape, p.x, p.z).y + S.FEET) <= .6) continue;
+        if (s.toys.some(q => q !== p && q.y < p.y && p.y - q.y < 1.5 &&
+          Math.hypot(q.x - p.x, q.z - p.z) < 1.1)) continue;
+        ghost++;
+      }
+      S.step(s);
+    }
+    check(`forma ${shape}: nadie se queda dormido en el aire`, !ghost, `${ghost} muestras`);
     // El montón no puede vaciarse solo. El solver no llega nunca al reposo
     // absoluto —el montón tiembla a ~1 u/s indefinidamente— así que el criterio
     // es estadístico: esperar sin jugar no puede valer una tirada.
@@ -284,9 +301,58 @@ console.log("\n— conducto físico —");
   second.rarity = 2;
   multi.s.events.length = 0;
   S.step(multi.s);
-  const wins = multi.s.events.filter(e => e >= S.EV_WIN).sort((a, b) => a - b);
+  const wins = multi.s.events.filter(e => e >= S.EV_WIN);
+  // El segundo cobra x2: caen en el mismo paso pero el combo los ordena igual.
   check("dos caídas simultáneas suman ambos premios",
-    multi.s.score === S.POINTS[1] + S.POINTS[2] && wins.join() === [S.EV_WIN + 1, S.EV_WIN + 2].join());
+    multi.s.score === S.POINTS[1] + S.POINTS[2] * 2 && wins.length === 2 &&
+    wins.map(S.winRarity).sort().join() === "1,2" && wins.map(S.winMult).join() === "1,2");
+}
+
+console.log("\n— combo —");
+{
+  // Banco aislado: se dejan caer premios por la boca de uno en uno, contando
+  // sólo la regla de puntuación. La física ya está probada más arriba.
+  const bench = () => {
+    const s = S.createSim(); S.reset(s, 1357);
+    for (const p of s.toys) p.state = 2;
+    s.phase = S.P_AIM; s.score = 0; s.combo = 0; s.events.length = 0;
+    return s;
+  };
+  const drop = (s, i, rarity) => {
+    const p = s.toys[i];
+    p.rarity = rarity; p.state = 3; p.sleep = 0;
+    p.x = p.ox = s.mx; p.z = p.oz = s.mz;
+    p.y = S.FLOOR - .1; p.oy = S.FLOOR;
+    let guard = 0;
+    while (p.state !== 2 && guard++ < 200) S.step(s);
+  };
+
+  const three = bench();
+  for (let i = 0; i < 3; i++) drop(three, i, 0);
+  check("tres Stars en la misma tirada valen 250 + 500 + 1.000",
+    three.score === S.POINTS[0] * 7, `${three.score}`);
+  check("el contador de combo llega a 3", three.combo === 3);
+
+  // La tirada es la unidad. Al aceptar el input el multiplicador vuelve a x1,
+  // que es lo que impide que una partida entera se cobre en progresión.
+  const across = bench();
+  drop(across, 0, 0);
+  across.phase = S.P_AIM; S.beginDrop(across);
+  across.phase = S.P_AIM; across.events.length = 0;
+  drop(across, 1, 0);
+  check("una tirada nueva reinicia el combo", across.score === S.POINTS[0] * 2 && across.combo === 1);
+
+  const capped = bench();
+  for (let i = 0; i < 8; i++) drop(capped, i, 0);
+  const uncapped = Array.from({ length: 8 }, (_, i) => S.POINTS[0] * 2 ** i).reduce((a, b) => a + b);
+  check("el multiplicador topa en x32", capped.score < uncapped &&
+    capped.score === S.POINTS[0] * (31 + 32 * 3), `${capped.score}`);
+
+  // Una partida recién reiniciada no puede heredar el combo del asentado, que
+  // deja caer premios por la boca antes de que el jugador toque nada.
+  let inherited = 0;
+  for (let g = 0; g < 6; g++) { const s = S.createSim(); S.reset(s, 4200 + g * 31); inherited += s.combo; }
+  check("reset deja el combo a cero", inherited === 0);
 }
 
 console.log("\n— entrada analógica —");

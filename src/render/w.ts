@@ -9,6 +9,7 @@ type Node = WSettings & {
   n: string;
   type?: keyof typeof models | "group" | "camera" | "light";
   m?: DOMMatrix;
+  k?: number[];       // color ya parseado, ver draw()
 };
 
 // Seis caras, dos triángulos cada una, devanado CCW visto desde fuera: 108
@@ -79,6 +80,7 @@ function setState(settings: WSettings, type?: Node["type"]) {
   if (settings.size) settings.w = settings.h = settings.d = settings.size;
   const old = nodes[name];
   const node = nodes[name] = { ...old, ...settings, n: name, type: type || old?.type };
+  if (settings.b) node.k = undefined;    // color nuevo: tira el cacheado
   if (settings.fov) {
     const f = 1 / Math.tan(settings.fov * Math.PI / 180);
     projection = new DOMMatrix([
@@ -107,6 +109,7 @@ function draw() {
   gl.uniformMatrix4fv(pvLocation, false, view.toFloat32Array());
   gl.uniform3f(lightLocation, light.x || 0, light.y || 0, light.z || 0);
   gl.uniform1f(ambientLocation, ambient);
+  let last: Model | undefined;
   for (const name in nodes) {
     const node = nodes[name]!;
     node.m = matrix(node);
@@ -114,11 +117,14 @@ function draw() {
     const model = node.type && models[node.type as keyof typeof models];
     if (!model) continue;
     gl.uniformMatrix4fv(modelLocation, false, node.m.toFloat32Array());
-    gl.bindBuffer(gl.ARRAY_BUFFER, model.verticesBuffer!);
-    gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 0, 0);
-    gl.vertexAttrib4fv(colorLocation, color(node.b || "888"));
+    if (model !== last) {
+      last = model;
+      gl.bindBuffer(gl.ARRAY_BUFFER, model.verticesBuffer!);
+      gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 0, 0);
+      if (model.indices) gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, model.indicesBuffer!);
+    }
+    gl.vertexAttrib4fv(colorLocation, node.k ||= color(node.b || "888"));
     if (model.indices) {
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, model.indicesBuffer!);
       gl.drawElements(gl.TRIANGLES, model.indices.length, gl.UNSIGNED_SHORT, 0);
     } else gl.drawArrays(gl.TRIANGLES, 0, model.vertices.length / 3);
   }

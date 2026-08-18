@@ -24,7 +24,7 @@ const result = await build({
 });
 
 const app = new TextDecoder().decode(result.outputFiles[0].contents);
-const mangledProperties = { regex: /^(toys|phase|time|score|tries|clawX|clawY|clawZ|close|dropY|fromX|fromZ|vx|vz|held|won|firstThrow|inX|inZ|events|rarity|state|sleep|slipAt|shape|mx|mz|yaw|roll|ox|oy|oz|oyaw|nx|ny|nz|resize|setShape|moveCamera|moveClaw|moveReticle|movePrize|hidePrize|celebrate|hideSparks|models|current|next|textures|program|clearColor|projection|setState|ambientLight|lastFrame|render|animation|lerp|dist|ambient|col|add|smooth|vertices|indices|normals|verticesBuffer|indicesBuffer|normalsBuffer|uvBuffer|customNormals|mix|mode|size)$/ };
+const mangledProperties = { regex: /^(toys|phase|time|score|tries|clawX|clawY|clawZ|close|dropY|fromX|fromZ|vx|vz|held|won|firstThrow|inX|inZ|events|rarity|state|sleep|slipAt|shape|mx|mz|yaw|roll|ox|oy|oz|oyaw|nx|ny|nz|resize|setShape|moveCamera|moveClaw|moveReticle|movePrize|hidePrize|celebrate|hideSparks|models|current|next|program|clearColor|projection|setState|render|dist|ambient|col|add|vertices|indices|verticesBuffer|indicesBuffer|mode|size)$/ };
 const terserOptions = [
   { compress: { passes: 3, unsafe: true }, mangle: { properties: mangledProperties } },
   {
@@ -37,7 +37,7 @@ const terserOptions = [
 const selectorNames = [
   "game", "hud", "top", "tries", "score", "instructions", "deck", "stick", "values", "grab",
   "message", "sub", "toast", "mute", "meter", "attempts", "star", "marquee", "spark", "rainbow",
-  "combo", "joystick", "unicorn", "rainbow-prize", "star-prize", "king", "overlay", "start-card",
+  "combo", "combox", "joystick", "unicorn", "rainbow-prize", "star-prize", "king", "overlay", "start-card",
   "hidden", "show"
 ];
 const selectorMap = new Map(selectorNames.map((name, i) => [name, (i < 26 ? "abcdefghijklmnopqrstuvwxyz" : "ABCDEFGHIJKLMNOPQRSTUVWXYZ")[i % 26]]));
@@ -65,8 +65,6 @@ const cleanedCss = (await readFile("src/style.css", "utf8"))
   .replace(/\/\*[\s\S]*?\*\//g, "")
   .replace(/\s+/g, " ")
   .replace(/\s*([{}:;,])\s*/g, "$1")
-  .replace(/#values \.(?:pink|gold)\{[^}]*\}|#values \.rainbow-prize\{background:linear-gradient\(135deg[^}]*\}|#values \.rainbow-prize:before\{top:-10px[^}]*\}/g, "")
-  .replace(/cursor:grab|button\{font:inherit;color:inherit\}|\.star\{margin-right:5px\}|\.help b\{color:#e49e53;margin:6px\}|#values span:nth-child\(4\) b\{font-size:6px\}/g, "")
   .trim();
 const css = shrinkCss((await transform(cleanedCss, { loader: "css", minify: true })).code.trim());
 
@@ -83,13 +81,48 @@ const pack = async (code) => {
   return candidates;
 };
 
-const htmlStart = `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>UNICORN CLAW</title><style>${css}</style>` + shrinkMarkup(
-  `<canvas id=game></canvas><main id=hud><header id=top><section class="meter attempts"><small>ATTEMPTS</small><strong><span class=star>★</span><span id=tries></span></strong></section><div class=marquee><span class=spark>★</span><h1>UNICORN CLAW</h1><div class=rainbow><i></i><i></i><i></i></div></div><section class="meter score"><small>SCORE</small><strong id=score></strong></section></header><aside id=instructions><b>HOW TO PLAY</b><span><kbd class=combo>WASD / ARROWS</kbd><strong>MOVE</strong></span><span><kbd class=combo>CLICK + DRAG</kbd><strong>LOOK</strong></span><span><kbd class=combo>SPACE</kbd><strong>GRAB</strong></span></aside><section id=deck><div class=joystick id=stick><i></i></div><aside id=values><span><i class=star-prize>★</i><b>STAR</b><strong>250</strong></span><span><i class=rainbow-prize></i><b>RAINBOW</b><strong>500</strong></span><span><i class=unicorn></i><b>UNICORN</b><strong>1.000</strong></span><span><i class=king></i><b>KING</b><strong>5.000</strong></span></aside><button id=grab></button></section><div class=overlay><div class=start-card><small>STEP RIGHT UP</small><div id=message></div><p id=sub></p><span>PRESS SPACE</span></div></div><div id=toast></div><button id=mute>♪</button></main><script>`
-);
+// El markup de producción se DERIVA de index.html: es la misma página sin los
+// envoltorios que el bundle no necesita. Tenerlo duplicado a mano aquí costó ya
+// una desincronización — el KING anunciaba 5.000 mientras el juego pagaba 2.000 —
+// y no había nada que pudiera detectarla.
+const devHtml = await readFile("index.html", "utf8");
+const markup = devHtml.slice(devHtml.indexOf("<body>") + 6, devHtml.indexOf("</body>"))
+  // el módulo de desarrollo no viaja: el bundle va en línea y la etiqueta que lo
+  // abre la pone htmlStart, NO el markup (ver abajo)
+  .replace(new RegExp("<script[^>]*></script>"), "")
+  // no hay lector de pantalla que recorra un canvas WebGL
+  .replace(/ aria-label="[^"]*"/g, "")
+  // comillas sólo donde el valor lleva espacios
+  .replace(/="([^" ]*)"/g, "=$1")
+  // los huecos que el HUD rellena al arrancar viajan vacíos
+  .replace(/(<(?:span|strong|button) id=(?:tries|score|combox|grab)>)[^<]*/g, "$1");
+
+// El CSS y el markup NO se pegan al HTML como texto plano, donde sólo los vería
+// DEFLATE: los inyecta el propio JS, de modo que entran en el payload que
+// comprime roadroller — mezcla de contextos, bastante más fuerte que DEFLATE.
+// Medido sobre este juego: 13.081 -> 11.971 bytes. Unos 1.100 de ganancia sin
+// quitar una sola regla de CSS ni un solo elemento del HUD, que es lo que
+// costaría sacarlos de cualquier otro sitio: la escena 3D entera comprime a casi
+// nada (toda la decoración del mueble son 70 bytes) y los bytes de verdad están
+// en estos dos.
+//
+// El precio es que la página está en blanco hasta que corre el JS. En un juego
+// que es un canvas WebGL eso no cambia nada: sin JS tampoco había juego.
+//
+// DOS órdenes que hay que respetar o el build sale roto sin avisar, porque pesa
+// prácticamente lo mismo de las dos maneras:
+//
+//   1. `chrome` va ANTES del bundle, para que el markup exista cuando main.ts
+//      busca sus elementos.
+//   2. la etiqueta <script> que abre el bloque vive en htmlStart y no dentro del
+//      markup. Si se cuela ahí, el HTML se queda sin abrir el script y el payload
+//      acaba pintado como texto en el body.
+const chrome = `document.head.insertAdjacentHTML("beforeend",${JSON.stringify(`<style>${css}</style>`)});document.body.innerHTML=${JSON.stringify(shrinkMarkup(markup))};`;
+const htmlStart = `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>UNICORN CLAW</title><body><script>`;
 const makeHtml = code => htmlStart + code + "</script>";
 
 const makeZip = (html) => zipSync({ "index.html": strToU8(html) }, { level: 9 });
-const tersedCandidates = await Promise.all(terserOptions.map(options => minify(app, { ...options, format: { comments: false } })));
+const tersedCandidates = await Promise.all(terserOptions.map(options => minify(chrome + app, { ...options, format: { comments: false } })));
 const plainCandidates = tersedCandidates
   .map((result, i) => ({ code: shrinkCode(result.code || ""), mode: `terser-${i + 1}` }))
   .filter(candidate => candidate.code);
@@ -110,14 +143,16 @@ if (useRoadroller) {
 }
 
 const zip = makeZip(html);
-await writeFile(`${OUTPUT_DIR}/index.html`, html);
-await writeFile(`${OUTPUT_DIR}/game.zip`, zip);
-
 const remaining = LIMIT - zip.length;
 console.log(`Build mode: ${mode}`);
 console.log(`${OUTPUT_DIR}/index.html: ${Buffer.byteLength(html)} bytes`);
 console.log(`${OUTPUT_DIR}/game.zip: ${zip.length} / ${LIMIT} bytes (${remaining} free)`);
 
+// Se comprueba ANTES de escribir: un build que se pasa del límite no puede dejar
+// en disco un index.html con pinta de entregable válido.
 if (remaining < 0) {
   throw new Error(`The submission exceeds the js13k limit by ${-remaining} bytes`);
 }
+
+await writeFile(`${OUTPUT_DIR}/index.html`, html);
+await writeFile(`${OUTPUT_DIR}/game.zip`, zip);

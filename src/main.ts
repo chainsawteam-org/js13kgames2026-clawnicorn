@@ -2,7 +2,7 @@ import { createScene } from "./render/scene";
 import {
   H, createSim, reset, step, beginDrop, beginGame,
   POINTS, FLOOR,
-  surface,
+  surface, comboMult, winRarity, winMult,
   P_TITLE, P_AIM, P_RESULT,
   EV_LOWER, EV_CLOSE, EV_GRAB, EV_EMPTY, EV_SLIP, EV_HOOK, EV_WIN, EV_OVER
 } from "./game/sim";
@@ -10,6 +10,7 @@ import {
 const $ = <T extends Element>(sel: string) => document.querySelector<T>(sel)!;
 const canvas = $<HTMLCanvasElement>("#game");
 const scoreEl = $("#score"), triesEl = $("#tries");
+const comboEl = $<HTMLElement>("#combo"), comboXEl = $("#combox");
 const message = $<HTMLElement>("#message"), sub = $<HTMLElement>("#sub");
 const overlay = $<HTMLElement>(".overlay"), toast = $<HTMLElement>("#toast");
 const muteEl = $<HTMLElement>("#mute");
@@ -24,9 +25,12 @@ let pointerX = 0, pointerY = 0, camYaw = 0, camPitch = 14;
 let touchX = 0, touchZ = 0, stickPointer = -1, cameraPointer = -1;
 let sparkT = -1, sparkX = 0, sparkY = 0, sparkZ = 0, toastT = 0;
 let audio: AudioContext | undefined;
-let shownScore = -1, shownTries = -1, crowned = false;
+let shownScore = -1, shownTries = -1, shownCombo = -1, crowned = false;
 
 const clamp = (v: number, a: number, b: number) => v < a ? a : v > b ? b : v;
+// Un solo formateador para las dos cifras que ve el jugador: el marcador y el
+// cartel de resultado tienen que coincidir, y el juego está en inglés.
+const fmt = (n: number) => n.toLocaleString("en");
 
 function moveStick(x: number, z: number) {
   const d = Math.max(1, Math.hypot(x, z)); x /= d; z /= d;
@@ -45,11 +49,25 @@ function resize() {
 }
 
 function hud() {
-  if (sim.score !== shownScore) { scoreEl.textContent = sim.score.toLocaleString("es-ES"); shownScore = sim.score; }
+  if (sim.score !== shownScore) { scoreEl.textContent = fmt(sim.score); shownScore = sim.score; }
   if (sim.tries !== shownTries) {
     triesEl.textContent = `${sim.tries} / 5`;
     grabEl.textContent = `${sim.tries}`;
     shownTries = sim.tries;
+  }
+  // El cartel enseña el multiplicador que YA se ha cobrado, no el que vendría:
+  // aparece con el segundo premio de la tirada, que es el primero que dobla, y
+  // así nunca promete un x2 que quizá no llegue. Se lee del estado y no de los
+  // eventos porque tiene que sobrevivir al resto de la tirada.
+  const mult = sim.combo > 1 ? comboMult(sim.combo - 1) : 0;
+  if (mult !== shownCombo) {
+    shownCombo = mult;
+    comboEl.classList.remove("show");
+    if (mult) {
+      comboXEl.textContent = `x${mult}`;
+      void comboEl.offsetWidth;   // fuerza reflow: reinicia la animación de entrada
+      comboEl.classList.add("show");
+    }
   }
 }
 
@@ -100,6 +118,12 @@ function toggleMute() {
 }
 
 function handleEvents() {
+  // Durante el título el montón sigue asentándose y algún peluche puede colarse
+  // por la boca —que está abierta a propósito—. Esos eventos no son del jugador:
+  // se tiran sin cartel ni sonido, y `beginGame` deja el marcador a cero. De paso
+  // es lo que garantiza que el AudioContext no se cree hasta que haya un gesto
+  // real del usuario: creado antes nace suspendido y el juego se queda mudo.
+  if (sim.phase === P_TITLE) { sim.events.length = 0; return; }
   for (const e of sim.events) {
     if (e === EV_LOWER) { toastT = 0; toast.classList.remove("show"); tone(170, .25, "sawtooth"); }
     else if (e === EV_CLOSE) tone(95, .16, "square");
@@ -109,11 +133,14 @@ function handleEvents() {
     else if (e === EV_HOOK) { showToast("DOUBLE!", 1.2); tone(520, .22, "triangle", .08); }
     else if (e === EV_SLIP) tone(140, .3, "sawtooth");
     else if (e >= EV_WIN) {
-      const r = e - EV_WIN;
+      // El multiplicador viaja en el propio evento: los eventos se consumen en
+      // lote y `sim.combo` ya puede haber avanzado cuando se lee este.
+      const r = winRarity(e), mult = winMult(e);
       if (r === 3) crowned = true;
-      showToast(`+${POINTS[r]}`, .9);
+      showToast(mult > 1 ? `+${POINTS[r]! * mult}  x${mult}` : `+${POINTS[r]}`, .9);
       sparkT = 0; sparkX = sim.mx; sparkY = FLOOR + .5; sparkZ = sim.mz;
-      tone(r > 2 ? 880 : 620, .4, "triangle");
+      // Cada escalón de combo sube el premio una cuarta justa, hasta dos octavas.
+      tone((r > 2 ? 880 : 620) * Math.min(mult, 32) ** .4, .4, "triangle");
     }
     else if (e === EV_EMPTY && !sim.won) showToast("MISSED!");
     else if (e === EV_OVER) {
@@ -122,7 +149,7 @@ function handleEvents() {
       // a la tabla de puntos, un Unicorn más algo de resto.
       const great = sim.score >= 1250;
       message.textContent = crowned ? "JACKPOT!" : great ? "GREAT HAUL!" : "GAME OVER";
-      sub.textContent = `${sim.score} POINTS  •  SPACE / R TO PLAY AGAIN`;
+      sub.textContent = `${fmt(sim.score)} POINTS  •  SPACE / R TO PLAY AGAIN`;
       overlay.classList.remove("hidden");
       tone(crowned || great ? 660 : 180, .5, "triangle");
     }
@@ -192,7 +219,7 @@ function releaseStick(id?: number) {
 stick.addEventListener("pointerdown", e => {
   if (stickPointer >= 0) return;
   stickPointer = e.pointerId; stick.setPointerCapture(e.pointerId); updateStick(e);
-  e.preventDefault(); e.stopPropagation();
+  e.preventDefault();
 });
 stick.addEventListener("pointermove", e => { if (e.pointerId === stickPointer) updateStick(e); });
 stick.addEventListener("pointerup", e => releaseStick(e.pointerId));
@@ -200,7 +227,7 @@ stick.addEventListener("pointercancel", e => releaseStick(e.pointerId));
 stick.addEventListener("lostpointercapture", e => releaseStick(e.pointerId));
 
 const press = (e: PointerEvent, action: () => void) => {
-  e.preventDefault(); e.stopPropagation(); action();
+  e.preventDefault(); action();
 };
 grabEl.addEventListener("pointerdown", e => press(e, fire));
 muteEl.addEventListener("pointerdown", e => press(e, toggleMute));
@@ -235,8 +262,6 @@ addEventListener("blur", clearInput);
 document.addEventListener("visibilitychange", () => { if (document.hidden) clearInput(); });
 addEventListener("resize", resize);
 
-const d = Math.min(devicePixelRatio, 2);
-canvas.width = innerWidth * d;
-canvas.height = innerHeight * d;
+resize();
 newGame();
 requestAnimationFrame(frame);
