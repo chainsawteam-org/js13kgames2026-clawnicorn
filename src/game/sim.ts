@@ -40,17 +40,26 @@ const DIFF = [.15, .25, .40, .70];
 // 0,85, y en los dos casos era inaccesible con un mando: 10 % de agarres con ruido
 // ±0,22 frente al 96-99 % del resto — de ahí el "nunca coge al King".
 //
-// 0,80 es el punto de equilibrio, y está elegido con la curva completa delante:
+// La curva completa, medida con el relieve actual:
 //
 //   umbral   ±0,22   ±0,55   partidas con jackpot (estrategia codiciosa)
 //   0,85      10 %     3 %     20/60   ← roto: lotería, no dificultad
-//   0,80      27 %    12 %     45/60   ← elegido
-//   0,78      37 %    13 %     56/60
-//   0,75      58 %    23 %     58/60   ← el jackpot deja de ser jackpot
+//   0,80      27 %     8 %     42/60
+//   0,76      44 %    16 %
+//   0,745     53 %    20 %             ← elegido
+//   0,75      58 %    23 %     58/60
 //
-// Por debajo de 0,80 el premio del King se convierte en un trámite: ir siempre a
-// por el King pasa a ser la jugada correcta el 93-97 % de las partidas y se lleva
-// por delante el riesgo/recompensa sobre el que está construido el juego.
+// El King estuvo en 0,80 y seguía leyendo como inalcanzable con un mando: una de
+// cada cuatro tiradas con puntería humana es, en cinco intentos por partida, un
+// premio que el jugador ve fallar cuatro veces seguidas. 0,745 lo pone en algo más
+// de una de cada dos, el DOBLE que antes, que es lo pedido explícitamente.
+//
+// El precio está medido y hay que conocerlo: la estrategia codiciosa —ir siempre a
+// por el King— sube sus partidas con jackpot, y cuanto más se baje este número más
+// se acerca el King a ser un trámite en vez de la apuesta arriesgada sobre la que
+// está construido el juego. La válvula de escape si eso llega a molestar NO es
+// volver a subir el umbral —ahí está el acantilado— sino enterrar más al King:
+// bastan crowd ≥ 4 vecinos para anular su exposición.
 //
 // Lo que protege al King ya no es la precisión imposible sino estar ENTERRADO,
 // que era la intención original: con crowd ≥ 4 la exposición se anula y el grip
@@ -60,7 +69,7 @@ const DIFF = [.15, .25, .40, .70];
 // desplaza al objetivo 0,35 u al bajar. Está medido que no: `beginDrop` para el
 // carro SOBRE el montón, el agarre se evalúa antes de que los dedos se muevan y
 // el centrado real llega a 0,999. Ese 0,60 fantasma es el origen del acantilado.)
-const REQUIRED = [.24, .33, .44, .80];
+const REQUIRED = [.24, .33, .44, .745];
 
 // El peluche son dos esferas: torso en el origen local y cabeza desplazada según yaw.
 const R_BODY = .55, R_HEAD = .37, HEAD_X = .62, HEAD_Y = .5;
@@ -73,6 +82,42 @@ export const FEET = .75;                         // del centro del torso a las p
 const GRAV = 15, DRAG = .9965, YSQUASH = 1.2, TORQUE = 22, SPIN_MAX = 4;
 const MAX_PUSH = .18;                            // tope duro: ninguna corrección puede catapultar nada
 const SLEEP_EPS = 2e-7, SLEEP_FRAMES = 12;
+
+// Atracción de la boca. El caballón resuelve el montado en reposo —empuja hacia
+// fuera, así que el montón no se escurre solo— pero deja un caso feo: lo que
+// llega rodando o cayendo al borde del embudo se queda encallado a dos dedos del
+// premio. Esto lo perdona con un tirón radial hacia el centro.
+//
+// La clave de que NO reabra la fuga que cerró el caballón es la puerta de
+// velocidad: sólo tira de lo que YA se mueve. Medido sobre las seis formas y
+// 13.000 muestras, el montón en reposo tiembla a 2e-4 u/paso de mediana y no
+// pasa de 4,5e-3 en el entorno del embudo; una caída real ronda 3e-2. PULL_V0
+// queda por encima del techo del temblor y PULL_V1 en velocidad de caída, de
+// modo que un premio dormido en la falda no recibe absolutamente nada por mucho
+// que se espere, y uno que llega por el aire sí.
+//
+// MOUTH_PULL está en u/s², como GRAV: es el 40 % de la gravedad, y sólo al
+// alcance cero. Se desvanece linealmente hasta PULL_R, que es justo el pie
+// exterior del caballón: fuera de la boca y su reborde no existe.
+const MOUTH_PULL = 6, PULL_R = FUNNEL_R + RIM_W, PULL_V0 = .008, PULL_V1 = .02;
+
+// Derrumbes. El solver duerme a un premio quieto y los dormidos no se integran,
+// así que no les cae la gravedad: cuando el de debajo se va —lo sube la garra, lo
+// empuja un vecino— el de encima se queda flotando sobre el hueco. WAKE_EPS es el
+// desplazamiento al cuadrado por paso a partir del cual un premio se considera
+// "en movimiento de verdad" y despierta a sus vecinos, y va deliberadamente por
+// encima del percentil 99 del temblor del montón (5,2e-3 u/paso → 2,7e-5): más
+// bajo despertaría al montón entero indefinidamente y el temblor perpetuo lo
+// acabaría escurriendo por la boca.
+//
+// COLLAPSE_* es el otro lado: arrancar un peluche del montón no puede dejar a los
+// de alrededor congelados en su sitio como si nada hubiera pasado. Al conceder el
+// agarre, los vecinos se despiertan y reciben un empujón HORIZONTAL hacia la
+// columna del que se va —la vertical la pone la gravedad—, así que primero se
+// apoyan contra él (masa infinita: rebotan y se bambolean) y, en cuanto sube, ya
+// están inclinados hacia el hueco y se derrumban dentro.
+const WAKE_EPS = 4e-5, WAKE_R = 1.5;
+const COLLAPSE_R = 1.7, COLLAPSE_PUSH = .022;
 
 // Claw. CLAW_TOP no es una altura estética: es la que fija el BARRIDO, porque el
 // premio cobrado cuelga HOLD_Y por debajo del carro y en P_CARRY cruza toda la
@@ -420,7 +465,19 @@ function constrain(s: Sim, clawOn: boolean, loading = false) {
         // ser desviado o empujar a otro. Sólo entra al conducto al cruzar el suelo.
         if (p.y < FLOOR + FEET) { p.state = 3; p.sleep = 0; }
       }
-      else supportSolve(s, p);
+      else {
+        supportSolve(s, p);
+        // Tirón de la boca, DESPUÉS del relieve para que el caballón no lo anule:
+        // sólo sobre lo que ya viene con velocidad, y desvaneciéndose con la
+        // distancia. Ver MOUTH_PULL. carry 0 porque es una aceleración real, no
+        // una corrección geométrica: tiene que acumular velocidad como GRAV.
+        if (!loading && md < PULL_R) {
+          const v = Math.hypot(p.x - p.ox, p.y - p.oy, p.z - p.oz);
+          const k = clamp((v - PULL_V0) / (PULL_V1 - PULL_V0), 0, 1)
+            * (1 - md / PULL_R) * MOUTH_PULL * H * H;
+          if (k > 0) push(p, -dx / md * k, 0, -dz / md * k, 0);
+        }
+      }
 
       // Las paredes se resuelven al final para que ningún empuje del relieve pueda
       // sacar después el cuerpo o la cabeza. La velocidad saliente rebota corta.
@@ -449,6 +506,23 @@ function constrain(s: Sim, clawOn: boolean, loading = false) {
     const m = (p.x - p.ox) ** 2 + (p.y - p.oy) ** 2 + (p.z - p.oz) ** 2;
     p.sleep = p.state || m > SLEEP_EPS ? 0 : p.sleep + 1;
   }
+
+  // Contagio del movimiento. Va en una pasada aparte y no dentro del bucle
+  // anterior porque `sleep` se acaba de recalcular ahí: hacerlo antes despertaría
+  // usando el estado del paso pasado. Lo que se mueve de verdad —WAKE_EPS, muy
+  // por encima del temblor de fondo— devuelve a la vida a sus vecinos dormidos,
+  // que es lo que convierte un empujón aislado en un derrumbe y lo que impide que
+  // nadie se quede flotando cuando el de abajo desaparece.
+  for (const a of toys) {
+    if (a.state === 2) continue;
+    const m = (a.x - a.ox) ** 2 + (a.y - a.oy) ** 2 + (a.z - a.oz) ** 2;
+    if (m < WAKE_EPS) continue;
+    for (const b of toys) {
+      if (b === a || b.state || b.sleep < SLEEP_FRAMES) continue;
+      const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+      if (dx * dx + dy * dy + dz * dz < WAKE_R * WAKE_R) b.sleep = 0;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------- reglas
@@ -463,6 +537,23 @@ function win(s: Sim, i: number) {
   // EV_WIN ocupa un rango propio: la rareza viaja en el evento para que dos
   // premios que caigan en el mismo frame conserven su valor individual.
   s.events.push(EV_WIN + p.rarity);
+}
+
+// Sacudida del vecindario cuando un peluche es arrancado del montón. Ver
+// COLLAPSE_R. El empujón es HORIZONTAL hacia la columna del que se va —la
+// vertical ya la pone la gravedad en cuanto queda hueco— y se aplica descentrado,
+// a la altura de la cabeza, para que además los haga girar: sin ese par el
+// derrumbe se ve como una traslación de un centímetro y no se lee.
+function collapse(s: Sim, p: Toy, k0: number) {
+  for (const q of s.toys) {
+    if (q === p || q.state) continue;
+    const dx = p.x - q.x, dy = p.y - q.y, dz = p.z - q.z;
+    const d = Math.hypot(dx, dy, dz);
+    if (d > COLLAPSE_R) continue;
+    q.sleep = 0;
+    const k = k0 * (1 - d / COLLAPSE_R) / (d || 1);
+    pushAt(q, headX(q) * .5, headZ(q) * .5, dx * k, 0, dz * k, 0);
+  }
 }
 
 // Se evalúa UNA vez, en el instante en que el carro toca fondo y ANTES de que los
@@ -502,6 +593,8 @@ function resolveGrab(s: Sim) {
 
   const p = s.toys[best]!;
   p.state = 1; s.held = best;
+
+  collapse(s, p, COLLAPSE_PUSH);
 
   // Enganche: con poca frecuencia el vecino más pegado al agarrado se queda
   // prendido y sube con él, valiendo un doblete. Se elige el más cercano en vez
@@ -583,6 +676,10 @@ function advance(s: Sim) {
   } else if (phase === P_LIFT) {
     s.clawY = s.dropY + ease(t) * (CLAW_TOP - s.dropY);
     const p = s.held >= 0 ? s.toys[s.held]! : null;
+    // Segunda sacudida, la que de verdad derrumba: la del agarre se gasta contra
+    // el propio agarrado, que todavía está en su sitio y es masa infinita, así
+    // que rebota. Ésta llega cuando el hueco está abriéndose.
+    if (p && s.time <= H) collapse(s, p, COLLAPSE_PUSH);
     if (p && p.slipAt >= 0 && t >= p.slipAt) { p.slipAt = -1; release(s, true); }
     if (t >= 1) { s.fromX = s.clawX; s.fromZ = s.clawZ; goto(s, P_CARRY); }
   } else if (phase === P_CARRY) {

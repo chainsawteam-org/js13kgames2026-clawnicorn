@@ -73,10 +73,10 @@ tecla de mute (`M`).
 
 | Rareza | Cantidad | Puntos | `REQUIRED` | Entrega con puntería perfecta |
 |---|---:|---:|---:|---:|
-| Star | 6 | 250 | 0,24 | 97 % |
-| Rainbow Item | 3 | 500 | 0,33 | 93 % |
-| Unicorn | 2 | 1.000 | 0,44 | 90 % |
-| Unicorn King | 2 | 2.000 | 0,80 | 83 % |
+| Star | 6 | 250 | 0,24 | 93 % |
+| Rainbow Item | 3 | 500 | 0,33 | 92 % |
+| Unicorn | 2 | 1.000 | 0,44 | 92 % |
+| Unicorn King | 2 | 2.000 | 0,745 | 83 % |
 
 El índice de rareza ordena **a la vez** cuántos hay en el montón, lo difícil que es
 agarrarlo y lo que paga, así que la decisión del jugador es siempre la misma
@@ -96,8 +96,15 @@ es cuánta puntería perdona el sistema. Medido con ruido de apuntado (`simtest`
 
 | Ruido de apuntado | Star | Rainbow | Unicorn | King |
 |---|---:|---:|---:|---:|
-| ±0,22 antes → ahora | 97 → 91 % | 98 → 94 % | 94 → 91 % | **5 → 23 %** |
-| ±0,55 antes → ahora | 92 → 83 % | 82 → 82 % | 62 → 79 % | **1 → 8 %** |
+| ±0,22 | 92 % | 96 % | 91 % | **53 %** |
+| ±0,55 | 83 % | 83 % | 75 % | **20 %** |
+
+El King ha pasado por tres calibraciones: 0,865 y 0,85 lo dejaban en un 5-10 % con
+puntería humana —inalcanzable—, 0,80 lo subía al 27 % y **0,745, el valor actual,
+al 53 %**. El salto de 0,80 a 0,745 es deliberado y está pedido: con 27 % y cinco
+tiradas por partida, quien va a por el King lo ve fallar cuatro de cada cinco veces
+y la corona sigue leyendo como imposible. El precio está abajo, en la comparación
+de estrategias, y no es pequeño.
 
 ### `grip` no distingue rarezas — toda la dificultad vive en esta tabla
 
@@ -118,18 +125,25 @@ en 0,85 y en los dos casos era inaccesible con un mando —10 % de agarres con r
 ±0,22 frente al 91-94 % del resto—, que es exactamente el síntoma de "la garra
 nunca coge al King".
 
-El 0,80 actual está elegido con la curva completa delante:
+El 0,745 actual está elegido con la curva completa delante:
 
 | Umbral | ±0,22 | ±0,55 | Partidas con jackpot (codiciosa) | |
 |---:|---:|---:|---:|---|
 | 0,85 | 10 % | 3 % | 20/60 | roto: lotería, no dificultad |
-| **0,80** | **27 %** | **12 %** | **45/60** | elegido |
-| 0,78 | 37 % | 13 % | 56/60 | |
-| 0,75 | 58 % | 23 % | 58/60 | el jackpot deja de ser jackpot |
+| 0,80 | 27 % | 8 % | 42/60 | el King seguía leyendo como imposible |
+| 0,76 | 44 % | 16 % | | |
+| **0,745** | **53 %** | **20 %** | **57/60** | elegido: el doble de agarrable que 0,80 |
+| 0,75 | 58 % | 23 % | 58/60 | |
 
-Por debajo de 0,80 el premio del King se convierte en un trámite: ir siempre a por
-el King pasa a ser la jugada correcta en el 93-97 % de las partidas y se lleva por
-delante el riesgo/recompensa sobre el que está construido el juego.
+**Lo que esto cuesta, dicho claro**: por debajo de 0,80 perseguir al King deja de
+ser una apuesta y pasa a ser la jugada obvia —firma jackpot en 57 de 60 partidas—,
+y el riesgo/recompensa sobre el que está construido el juego se afloja. Es un
+cambio pedido a sabiendas, no un descuido de calibración.
+
+Si en algún momento hay que devolverle el filo, la palanca **no** es volver a subir
+el umbral —ahí está el acantilado, y el problema que venía a resolver este cambio
+vuelve intacto— sino cualquiera de estas dos, que no tocan la sensación de agarre:
+bajar los 2.000 puntos del King, o enterrarlo más en el reparto inicial.
 
 Lo que protege al King ya no es una precisión imposible sino **estar enterrado**,
 que era la intención original: con `crowd ≥ 4` la exposición se anula y el `grip`
@@ -145,17 +159,18 @@ se queda en ~0,72, por debajo del umbral incluso apuntando perfecto.
 
 | Estrategia | Media | Premios | Partidas a cero | Con jackpot |
 |---|---:|---:|---:|---:|
-| Codiciosa (siempre el King) | 6.829 pts | 3,07 | 5/60 | 45/60 |
-| Conservadora (el más despejado) | 3.821 pts | 5,15 | 0/60 | 20/60 |
+| Codiciosa (siempre el King) | 5.550 pts | 4,98 | 1/60 | 57/60 |
+| Conservadora (el más despejado) | 2.950 pts | 5,40 | 0/60 | 27/60 |
 
 La boca abierta recompensa las jugadas emergentes: perseguir al King también
-puede empujarlo a él o a sus vecinos al conducto. La codiciosa paga más de media
-(1,79×) y es la que firma el jackpot —45 de 60 partidas—, pero es también la única
-que se va a cero. La conservadora entrega casi el doble de premios y no falla
-nunca. `simtest` falla si la brecha supera 3,5× o cualquiera deja de ser jugable.
+puede empujarlo a él o a sus vecinos al conducto. `simtest` falla si la brecha
+supera 3,5× o cualquiera deja de ser jugable.
 
-Ese 1,79× es el termómetro del umbral del King: si baja de 0,80 se dispara, porque
-perseguir al King deja de ser una apuesta y pasa a ser la jugada obvia.
+Esa brecha (1,88×) es el **termómetro del umbral del King**, y hay que leerla con
+la nota de arriba delante: con el umbral en 0,80 la codiciosa se iba a cero 12 de
+60 veces y era una apuesta de verdad; con 0,745 casi no falla, así que hoy la
+codiciosa domina. Sigue dentro de lo que el test acepta, pero es el número que
+hay que vigilar si el juego empieza a parecer fácil.
 
 La primera tirada de una partida nunca sufre resbalón. Es una ayuda invisible que
 enseña el bucle y evita una primera impresión injusta.
@@ -317,7 +332,40 @@ aire: lo soltado, lo resbalado y lo que se derrumba desde un escalón.
 Todo esto vive en la geometría compartida (`surface`), no en un empujón especial
 del solver: el embudo es relieve como cualquier otro, de modo que la altura de
 parada de la garra, el objetivo del enganchado y la exposición siguen siendo
-coherentes sin código añadido. El render lo escalona en marcos concéntricos —la
+coherentes sin código añadido.
+
+**El tirón de la boca** (`MOUTH_PULL`) es la única excepción a lo anterior, y es
+pequeña a propósito: una aceleración radial hacia el centro, el 40 % de la
+gravedad al alcance cero, que se desvanece linealmente hasta el pie exterior del
+caballón y no existe más allá. Sirve para lo que el cono solo no termina de
+perdonar: lo que llega rodando al borde y se queda encallado a un palmo.
+
+Lo que impide que reabra la fuga que el caballón vino a cerrar es una **puerta de
+velocidad**: sólo tira de lo que ya se mueve. Medido sobre las seis formas y 13.000
+muestras, el montón en reposo tiembla a 2·10⁻⁴ u/paso de mediana y no pasa de
+4,5·10⁻³ en el entorno del embudo, mientras que una caída real ronda 3·10⁻². El
+umbral inferior queda por encima del techo del temblor y el superior en velocidad
+de caída, así que un premio dormido en la falda no recibe nada por mucho que se
+espere —el test de "esperar sin jugar" sigue en 0-250 puntos por cuatro partidas,
+con el listón en 1.250— y uno que llega por el aire sí.
+
+**Derrumbes.** El solver duerme a los premios quietos y los dormidos no se
+integran, así que tampoco les cae la gravedad: cuando el de debajo desaparece, el
+de encima se quedaba flotando sobre el hueco. Dos piezas lo arreglan:
+
+- **contagio del movimiento** (`WAKE_EPS`): lo que se mueve de verdad despierta a
+  sus vecinos dormidos. El umbral va por encima del percentil 99 del temblor de
+  fondo —más bajo despertaría al montón entero para siempre, y el temblor perpetuo
+  acaba escurriéndolo por la boca—, y es lo que convierte un empujón aislado en una
+  cascada.
+- **sacudida del hueco** (`COLLAPSE_*`): arrancar un peluche empuja a los de
+  alrededor hacia su columna. Se aplica **dos veces**, al conceder el agarre y en
+  el primer paso de la subida, porque la primera se gasta contra el propio
+  agarrado —que sigue en su sitio y es masa infinita— y sólo la segunda llega con
+  el hueco ya abriéndose. El empuje es horizontal y **descentrado**, a la altura de
+  la cabeza, para que además los haga girar: sin ese par el derrumbe se ve como una
+  traslación de un centímetro y no se lee. Medido sobre 29 agarres, los vecinos que
+  no se movían absolutamente nada pasan del 66 % al 16 %. El render lo escalona en marcos concéntricos —la
 misma solución que las terrazas radiales— porque cuatro rampas inclinadas no
 casan en las esquinas.
 
@@ -526,7 +574,11 @@ orden de §15.4.
   que se posa en el caballón no se acerca a la boca y el llano de al lado sigue
   siendo llano — los tres por cada lado que la bandeja deja probar;
 - **balance**: la escalera de dificultad por rareza y que ninguna estrategia
-  domine a la otra.
+  domine a la otra;
+- **que el montón no se vacíe solo**: cuatro partidas por forma sin tocar el mando
+  no pueden valer ni cinco premios baratos. Es el guardián del tirón de la boca y
+  del contagio del despertar: los dos son formas de mover el montón sin que el
+  jugador juegue, y este test es lo que dice si se han pasado.
 
 Manual: girar la cámara por debajo y por los lados para confirmar que nada flota
 ni se hunde, y redimensionar la ventana a media partida.
