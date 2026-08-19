@@ -26,8 +26,8 @@ export const EV_LOWER = 0, EV_CLOSE = 1, EV_GRAB = 2, EV_EMPTY = 3,
 export const winRarity = (e: number) => (e - EV_WIN) & 3;
 export const winMult = (e: number) => comboMult((e - EV_WIN) >> 2);
 
-// Escalera de valor por rareza: Star (6 en el montón) < Rainbow (3) < Unicorn (2)
-// < Unicorn King (2). El índice de rareza ordena a la vez cuántos hay, lo difícil
+// Escalera de valor por rareza: Star (8 en el montón) < Rainbow (4) < Unicorn (3)
+// < Unicorn King (3). El índice de rareza ordena a la vez cuántos hay, lo difícil
 // que es agarrarlo y lo que paga, así que la decisión del jugador es siempre la
 // misma pregunta: ¿cuánto riesgo por cuánto premio?
 export const POINTS = [250, 500, 1000, 2000];
@@ -35,7 +35,7 @@ export const POINTS = [250, 500, 1000, 2000];
 // Combo: dentro de UNA tirada, cada premio que entra después del primero vale el
 // doble que el anterior (x1, x2, x4, x8...). El contador es el número de premios
 // ya cobrados en la tirada, así que el multiplicador del siguiente es 1 << combo.
-// El techo existe sólo como red: el montón tiene 13 peluches y un derrumbe puede
+// El techo existe sólo como red: el montón tiene 18 peluches y un derrumbe puede
 // colarlos casi todos, de modo que sin tope una sola tirada afortunada valdría más
 // que cualquier partida jugada bien. Con x32 el doblete y el triplete —que es lo
 // que la mecánica quiere premiar— siguen intactos.
@@ -197,10 +197,11 @@ const rnd = () => {
 // al asentarse formen un montón con contacto real y no una sola capa dispersa.
 // El rincón del conducto queda libre a propósito.
 const LAYOUT: [number, number, number][] = [
-  [-2.4, -1.05, 0], [-1.2, -1.05, 0], [0, -1.1, 0], [1.2, -1.05, 0],
-  [2.4, -1.05, 0], [-2.2, -0.45, 0], [-1.2, 0.05, 1], [0.05, -0.05, 1],
-  [1.25, 0, 1], [2.4, 0.05, 2], [0.2, 1.05, 2], [1.4, 1.1, 3],
-  [2.5, 1.05, 3]
+  [-2.6, -1.15, 0], [-1.55, -1.1, 0], [-0.5, -1.15, 0], [0.55, -1.1, 0],
+  [1.6, -1.15, 0], [2.65, -1.1, 0], [-2.0, -0.5, 0], [2.0, -0.45, 0],
+  [-1.85, 0.15, 1], [-0.6, 0.2, 1], [0.6, 0.15, 1], [1.85, 0.2, 1],
+  [-1.1, 0.75, 2], [0, 0.8, 2], [1.1, 0.75, 2],
+  [-1.2, 1.05, 3], [0, 1.1, 3], [1.2, 1.05, 3]
 ];
 
 export function createSim() {

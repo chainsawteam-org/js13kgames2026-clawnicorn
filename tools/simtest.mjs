@@ -68,6 +68,10 @@ function play(seed, aim, fps = 60) {
   return { s, frames, steps, log, finished: s.phase === S.P_RESULT };
 }
 
+// El tamaño del montón sale de la propia simulación: esta batería tenía el 13
+// escrito en cinco sitios y cualquier cambio de reparto la dejaba mintiendo.
+const TOYS = (() => { const s = S.createSim(); S.reset(s, 1); return s.toys.length; })();
+
 // Un sim recién creado elige forma = semilla % SHAPE_COUNT, así que se puede
 // pedir una forma concreta sin tocar la simulación.
 const seedFor = (shape, i = 0) => (1234 + i * 7) * S.SHAPE_COUNT + shape;
@@ -127,7 +131,7 @@ console.log("\n— asentado inicial —");
     const low = s.toys.filter(p => p.y < S.surface(s.shape, p.x, p.z).y + S.FEET - .012);
     const inChute = s.toys.filter(p => Math.hypot(p.x - s.mx, p.z - s.mz) < S.MOUTH_R);
     const nan = s.toys.filter(p => !Number.isFinite(p.x + p.y + p.z + p.yaw));
-    check(`forma ${shape}: 13 premios apoyados`, s.shape === shape && s.toys.length === 13 && !low.length,
+    check(`forma ${shape}: ${TOYS} premios apoyados`, s.shape === shape && s.toys.length === TOYS && !low.length,
       `${low.length} bajo el relieve`);
     check(`forma ${shape}: conducto libre y sin NaN`, !inChute.length && !nan.length && !s.score && s.toys.every(p => p.state === 0));
     // Un peluche dormido no se integra, así que dormir a uno con los pies en el
@@ -476,10 +480,10 @@ console.log("\n— integridad tras 40 partidas (jugador sensato, puntería imper
   for (let i = 0; i < 40; i++) {
     const r = play(1000 + i * 37, sensible);
     if (!r.finished) unfinished++;
-    if (r.s.toys.length !== 13) bad++;
+    if (r.s.toys.length !== TOYS) bad++;
     const won = r.s.toys.filter(p => p.state === 2).length;
     const pile = r.s.toys.filter(p => p.state === 0).length;
-    if (won + pile !== 13) lost++;
+    if (won + pile !== TOYS) lost++;
     for (const p of r.s.toys) {
       if (!Number.isFinite(p.x + p.y + p.z + p.yaw + p.roll)) nan++;
       if (p.state !== 2 && (Math.abs(p.x) > S.X1 + 1.5 || Math.abs(p.z) > S.Z1 + .95 || p.y < S.FLOOR - .5)) out++;
@@ -491,8 +495,8 @@ console.log("\n— integridad tras 40 partidas (jugador sensato, puntería imper
     for (const k in r.log.byRarity) rarities[k] += r.log.byRarity[k];
   }
   check("todas las partidas terminan", unfinished === 0, `${unfinished} colgadas`);
-  check("siempre 13 premios", bad === 0);
-  check("premios ganados + montón = 13", lost === 0, `${lost} partidas pierden premios`);
+  check(`siempre ${TOYS} premios`, bad === 0);
+  check(`premios ganados + montón = ${TOYS}`, lost === 0, `${lost} partidas pierden premios`);
   check("sin NaN", nan === 0);
   check("nadie sale de la cuba", out === 0, `${out} fuera`);
   // Un jugador sensato puede irse en blanco por mala suerte; que sea habitual, no.
@@ -515,7 +519,7 @@ console.log("\n— balance por forma (muestra igualada) —");
       if (!r.s.score) zeros++;
       const won = r.s.toys.filter(p => p.state === 2).length;
       const pile = r.s.toys.filter(p => p.state === 0).length;
-      if (won + pile !== 13 || r.s.shape !== shape) lost++;
+      if (won + pile !== TOYS || r.s.shape !== shape) lost++;
     }
     rows.push({ avg: total / N, wins: wins / N, grabs: grabs / N, zeros, lost });
   }
