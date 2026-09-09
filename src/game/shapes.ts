@@ -64,7 +64,7 @@ export const MOUTH_R = .7;
 // relieve, `supportSolve` ya lo trata como cualquier rampa y el resto —altura de
 // parada de la garra, objetivo del enganchado, exposición— sale coherente sin
 // tocar una línea más.
-export const FUNNEL_R = 1.25, FUNNEL_D = .42, RIM_H = .2, RIM_W = .3;
+export const FUNNEL_R = 1.25, FUNNEL_D = .42, RIM_H = .8, RIM_W = .3;
 
 // La unidad del relieve es el PISO: la altura de un premio, FEET + HEAD_Y +
 // R_HEAD ≈ 1,6. Sólo hay dos alturas de escalón y las dos significan algo

@@ -292,6 +292,9 @@ export function reset(s: Sim, gameSeed: number) {
     integrate(s); constrain(s, false);
     for (const p of s.toys) if (p.state) relaunch(p);
   }
+  // La relajación puede terminar a medio paso de una rampa: proyectamos una vez
+  // más sobre el suelo para no empezar con una pezuña dentro del relieve.
+  for (const p of s.toys) supportSolve(s, p);
   // El asentado deja caer premios por la boca en su segunda y tercera fase, y
   // eso pasa por `win`: hay que borrar también el combo, o la partida empezaría
   // con el multiplicador ya subido.
@@ -551,7 +554,12 @@ function constrain(s: Sim, clawOn: boolean, loading = false) {
     p.roll += (clamp((p.x - p.ox) * 90, -26, 26) - p.roll) * .12;
 
     const m = (p.x - p.ox) ** 2 + (p.y - p.oy) ** 2 + (p.z - p.oz) ** 2;
-    p.sleep = p.state || m > SLEEP_EPS ? 0 : p.sleep + 1;
+    // Un premio aislado no puede dormirse mientras cae. Además del suelo, otro
+    // premio cercano por debajo cuenta como apoyo para que el montón sí repose.
+    const supported = p.y - (surface(s.shape, p.x, p.z).y + FEET) <= .6 ||
+      toys.some(q => q !== p && !q.state && q.y < p.y && p.y - q.y < 1.5 &&
+        Math.hypot(q.x - p.x, q.z - p.z) < 1.1);
+    p.sleep = p.state || m > SLEEP_EPS || !supported ? 0 : p.sleep + 1;
   }
 
   // Contagio del movimiento. Va en una pasada aparte y no dentro del bucle
